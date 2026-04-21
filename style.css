@@ -1,0 +1,293 @@
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #f7fafc;
+  color: #2d3748;
+  min-height: 100vh;
+}
+
+/* ── Top bar ── */
+header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 56px;
+  background: #2d3748;
+  color: #fff;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── Buttons ── */
+.btn {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.btn:hover {
+  opacity: 0.85;
+}
+
+.btn-upload {
+  background: #4299e1;
+  color: #fff;
+}
+
+.btn-expand {
+  background: #48bb78;
+  color: #fff;
+}
+
+.btn-collapse {
+  background: transparent;
+  color: #e2e8f0;
+  border: 1px solid #4a5568;
+}
+
+.btn-collapse:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Chart area ── */
+main#chart {
+  padding: 80px 32px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-x: auto;
+  min-height: calc(100vh - 56px);
+}
+
+/* ── Empty / error state ── */
+.empty-state,
+.error-state {
+  margin-top: 120px;
+  font-size: 15px;
+  color: #a0aec0;
+  text-align: center;
+}
+
+/* ── Tree layout ── */
+.tree-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.children {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  justify-content: center;
+  position: relative;
+  padding-top: 28px;
+  margin-top: 0;
+}
+
+.children.collapsed {
+  display: none;
+}
+
+/* ── Connector lines ── */
+
+/* Vertical line from parent card down */
+.tree-node > .children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 14px;
+  background: #cbd5e0;
+}
+
+/* Horizontal line across children */
+.tree-node > .children::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #cbd5e0;
+}
+
+/* Single-child: shrink horizontal line to center */
+.tree-node > .children:has(> .tree-node:only-child)::after {
+  left: 50%;
+  right: 50%;
+}
+
+/* Vertical stub up from each child to horizontal line */
+.children > .tree-node::before {
+  content: "";
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 14px;
+  background: #cbd5e0;
+}
+
+.children > .tree-node {
+  position: relative;
+}
+
+/* ── Node cards ── */
+.node-card {
+  position: relative;
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  min-width: 170px;
+  max-width: 240px;
+  text-align: left;
+  transition: box-shadow 0.15s;
+}
+
+.node-card:focus-visible {
+  outline: 2px solid #4299e1;
+  outline-offset: 2px;
+}
+
+.node-card.manager {
+  border-left: 2px solid #4299e1;
+  cursor: pointer;
+}
+
+.node-card.manager:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.node-card.leaf {
+  border: 1px solid #e2e8f0;
+}
+
+.node-card .name {
+  font-weight: 600;
+  font-size: 15px;
+  color: #2d3748;
+}
+
+.node-card .title {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.node-card.manager .title {
+  color: #4299e1;
+}
+
+.node-card.leaf .title {
+  color: #718096;
+}
+
+.node-card .reports {
+  font-size: 11px;
+  color: #a0aec0;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.node-card .toggle {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #a0aec0;
+  pointer-events: none;
+  line-height: 1;
+}
+
+/* ── Responsiveness ── */
+
+/* Tablet (768-1024px): same horizontal layout, no style changes needed */
+
+/* Mobile (<768px): vertical stacking */
+@media (max-width: 767px) {
+  header {
+    padding: 0 12px;
+    height: 48px;
+  }
+
+  header h1 {
+    font-size: 16px;
+  }
+
+  .btn {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  main#chart {
+    padding: 64px 12px 32px;
+    align-items: flex-start;
+  }
+
+  .tree-node {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .node-card {
+    max-width: none;
+    min-width: 0;
+  }
+
+  .children {
+    flex-direction: column;
+    gap: 0;
+    padding-top: 0;
+    padding-left: 20px;
+    margin-top: 4px;
+  }
+
+  .children > .tree-node {
+    margin-top: 4px;
+  }
+
+  /* Hide connector pseudo-elements on mobile */
+  .tree-node > .children::before,
+  .tree-node > .children::after,
+  .children > .tree-node::before {
+    display: none;
+  }
+
+  /* Vertical indent line instead */
+  .children {
+    border-left: 2px solid #e2e8f0;
+  }
+}

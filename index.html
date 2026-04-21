@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Org Chart Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Org Chart</h1>
+    <div class="header-actions">
+      <input type="file" id="file-input" accept=".csv" hidden>
+      <button id="upload-btn" class="btn btn-upload">Upload CSV</button>
+      <button id="expand-btn" class="btn btn-expand">Expand All</button>
+      <button id="collapse-btn" class="btn btn-collapse">Collapse All</button>
+    </div>
+  </header>
+  <main id="chart">
+    <p class="empty-state">Upload a CSV to get started</p>
+  </main>
+  <script src="app.js" defer></script>
+</body>
+</html>
