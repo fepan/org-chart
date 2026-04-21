@@ -125,6 +125,10 @@ main#chart {
   display: none;
 }
 
+.tree-node.ic-hidden {
+  display: none;
+}
+
 /* ── Connector lines ── */
 
 /* Vertical line from parent card down */

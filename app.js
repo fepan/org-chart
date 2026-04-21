@@ -219,7 +219,14 @@
     }
   }
 
+  function clearIcHidden() {
+    chartEl.querySelectorAll(".tree-node.ic-hidden").forEach(function (tn) {
+      tn.classList.remove("ic-hidden");
+    });
+  }
+
   function expandAll() {
+    clearIcHidden();
     const containers = chartEl.querySelectorAll(".children.collapsed");
     containers.forEach(function (c) {
       c.classList.remove("collapsed");
@@ -234,6 +241,7 @@
   }
 
   function collapseAll() {
+    clearIcHidden();
     const containers = chartEl.querySelectorAll(
       ".tree-node > .children"
     );
@@ -251,6 +259,12 @@
 
   function expandManagers() {
     collapseAll();
+    chartEl.querySelectorAll(".tree-node").forEach(function (tn) {
+      var card = tn.querySelector(":scope > .node-card");
+      if (card && card.classList.contains("leaf")) {
+        tn.classList.add("ic-hidden");
+      }
+    });
     var treeNodes = chartEl.querySelectorAll(".tree-node");
     treeNodes.forEach(function (treeNode) {
       var childrenContainer = treeNode.querySelector(":scope > .children");
