@@ -36,6 +36,24 @@ Carol,Senior Engineer,Bob
 - **Managers Only** — show only the management chain (hide ICs)
 - **Collapse All** — collapse everything
 
+### Auto-Load from URL
+
+Append `?file=<filename>.csv` to load a CSV automatically:
+
+```
+http://localhost:8080?file=my-org.csv
+```
+
+### Claude Code Skill: `/load-sheet`
+
+If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code), the included `/load-sheet` skill downloads a Google Spreadsheet as CSV and provides the auto-load URL.
+
+```
+/load-sheet 'My Spreadsheet Name' use Sheet1
+```
+
+Requires the `gws` CLI to be installed and authenticated.
+
 ### Per-Node Expand
 
 Each manager card has two click targets:

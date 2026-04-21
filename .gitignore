@@ -1,4 +1,6 @@
 .superpowers/
 .gstack/
-.claude/
+.claude/settings.local.json
 reorg.csv
+reorg-details-rom.csv
+data.csv

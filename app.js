@@ -428,6 +428,29 @@
     chartEl.appendChild(p);
   }
 
+  // ── Load CSV text ──
+
+  function loadCSVText(text) {
+    if (!text || text.trim() === "") {
+      showError("Please upload a CSV file");
+      return;
+    }
+
+    const result = parseCSV(text);
+
+    if (result.error === "empty") {
+      showError("Please upload a CSV file");
+    } else if (result.error === "columns") {
+      showError("CSV must contain columns: Name, Title, Manager");
+    } else if (result.error === "no_data") {
+      showError("No valid data found in CSV");
+    } else {
+      const roots = buildTree(result.people);
+      renderTree(roots);
+      applyDefaultExpansion(getDefaultDepth());
+    }
+  }
+
   // ── Event listeners ──
 
   uploadBtn.addEventListener("click", function () {
@@ -446,33 +469,22 @@
 
     const reader = new FileReader();
     reader.onload = function (e) {
-      const text = e.target.result;
-
-      if (!text || text.trim() === "") {
-        showError("Please upload a CSV file");
-        fileInput.value = "";
-        return;
-      }
-
-      const result = parseCSV(text);
-
-      if (result.error === "empty") {
-        showError("Please upload a CSV file");
-      } else if (result.error === "columns") {
-        showError("CSV must contain columns: Name, Title, Manager");
-      } else if (result.error === "no_data") {
-        showError("No valid data found in CSV");
-      } else {
-        const roots = buildTree(result.people);
-        renderTree(roots);
-        applyDefaultExpansion(getDefaultDepth());
-      }
-
+      loadCSVText(e.target.result);
       fileInput.value = "";
     };
 
     reader.readAsText(file);
   });
+
+  // Auto-load from ?file= URL parameter
+  var params = new URLSearchParams(window.location.search);
+  var autoFile = params.get("file");
+  if (autoFile) {
+    fetch(autoFile)
+      .then(function (r) { return r.text(); })
+      .then(loadCSVText)
+      .catch(function () { showError("Could not load " + autoFile); });
+  }
 
   expandBtn.addEventListener("click", expandAll);
   mgmtBtn.addEventListener("click", expandManagers);
