@@ -8,6 +8,164 @@
   const mgmtBtn = document.getElementById("mgmt-btn");
   const collapseBtn = document.getElementById("collapse-btn");
 
+  var editPanel = document.getElementById("edit-panel");
+  var panelName = document.getElementById("panel-name");
+  var panelTitle = document.getElementById("panel-title");
+  var panelManager = document.getElementById("panel-manager");
+  var panelReports = document.getElementById("panel-reports");
+  var panelCloseBtn = document.getElementById("panel-close-btn");
+  var panelSaveBtn = document.getElementById("panel-save-btn");
+  var panelCancelBtn = document.getElementById("panel-cancel-btn");
+  var saveCsvBtn = document.getElementById("save-csv-btn");
+  var resetBtn = document.getElementById("reset-btn");
+  var legendEl = document.getElementById("change-legend");
+
+  let originalPeople = [];
+  let currentPeople = [];
+  let selectedPerson = null;
+
+  function getChanges() {
+    var changes = new Map();
+    var origMap = new Map(originalPeople.map(function (p) {
+      return [p.name, p];
+    }));
+
+    for (var i = 0; i < currentPeople.length; i++) {
+      var curr = currentPeople[i];
+      var orig = origMap.get(curr.name);
+      if (!orig) continue;
+
+      var moved = curr.manager !== orig.manager;
+      var edited = curr.title !== orig.title;
+
+      if (moved || edited) {
+        changes.set(curr.name, {
+          moved: moved,
+          edited: edited,
+          originalManager: orig.manager
+        });
+      }
+    }
+
+    return changes;
+  }
+
+  function hasChanges() {
+    return getChanges().size > 0;
+  }
+
+  function getSubtreeNames(name) {
+    var names = [];
+    var directReports = currentPeople.filter(function (p) { return p.manager === name; });
+    for (var i = 0; i < directReports.length; i++) {
+      names.push(directReports[i].name);
+      names = names.concat(getSubtreeNames(directReports[i].name));
+    }
+    return names;
+  }
+
+  // ── Panel Logic ──
+
+  function openPanel(name) {
+    var person = currentPeople.find(function (p) { return p.name === name; });
+    if (!person) return;
+
+    selectedPerson = name;
+
+    panelName.textContent = person.name;
+    panelTitle.value = person.title;
+
+    // Populate manager dropdown — exclude self and subtree
+    var excluded = getSubtreeNames(name);
+    excluded.push(name);
+
+    panelManager.innerHTML = "";
+
+    var noMgrOption = document.createElement("option");
+    noMgrOption.value = "";
+    noMgrOption.textContent = "(No Manager)";
+    panelManager.appendChild(noMgrOption);
+
+    var sortedPeople = currentPeople
+      .filter(function (p) { return excluded.indexOf(p.name) === -1; })
+      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+    for (var i = 0; i < sortedPeople.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = sortedPeople[i].name;
+      opt.textContent = sortedPeople[i].name;
+      panelManager.appendChild(opt);
+    }
+
+    panelManager.value = person.manager;
+
+    // Populate direct reports
+    panelReports.innerHTML = "";
+    var reports = currentPeople.filter(function (p) { return p.manager === name; });
+    for (var j = 0; j < reports.length; j++) {
+      var li = document.createElement("li");
+      li.textContent = reports[j].name + " — " + reports[j].title;
+      panelReports.appendChild(li);
+    }
+
+    // Show panel
+    editPanel.removeAttribute("hidden");
+    requestAnimationFrame(function () {
+      editPanel.classList.add("visible");
+    });
+    document.body.classList.add("panel-open");
+
+    highlightSelectedCard();
+  }
+
+  function closePanel() {
+    selectedPerson = null;
+    editPanel.classList.remove("visible");
+    document.body.classList.remove("panel-open");
+
+    var prev = chartEl.querySelector(".node-card.selected");
+    if (prev) prev.classList.remove("selected");
+
+    setTimeout(function () {
+      if (!editPanel.classList.contains("visible")) {
+        editPanel.setAttribute("hidden", "");
+      }
+    }, 250);
+  }
+
+  function highlightSelectedCard() {
+    var prev = chartEl.querySelector(".node-card.selected");
+    if (prev) prev.classList.remove("selected");
+
+    if (!selectedPerson) return;
+
+    var cards = chartEl.querySelectorAll(".node-card");
+    for (var i = 0; i < cards.length; i++) {
+      var nameEl = cards[i].querySelector(".name");
+      if (nameEl && nameEl.textContent === selectedPerson) {
+        cards[i].classList.add("selected");
+        break;
+      }
+    }
+  }
+
+  function panelHasUnsavedChanges() {
+    if (!selectedPerson) return false;
+    var person = currentPeople.find(function (p) { return p.name === selectedPerson; });
+    if (!person) return false;
+    return panelTitle.value !== person.title || panelManager.value !== person.manager;
+  }
+
+  function updateToolbarButtons() {
+    var changed = hasChanges();
+    saveCsvBtn.hidden = !changed;
+    resetBtn.hidden = !changed;
+  }
+
+  function updateLegend() {
+    legendEl.hidden = !hasChanges();
+  }
+
   // ── CSV Parsing ──
 
   function parseCSV(text) {
@@ -117,19 +275,29 @@
   // ── Rendering ──
 
   function renderTree(roots) {
+    var changes = getChanges();
     chartEl.innerHTML = "";
 
-    const wrapper = document.createElement("div");
+    if (legendEl) {
+      legendEl.hidden = changes.size === 0;
+      // Re-append legend since innerHTML cleared it
+      if (changes.size > 0) {
+        chartEl.appendChild(legendEl);
+        legendEl.removeAttribute("hidden");
+      }
+    }
+
+    var wrapper = document.createElement("div");
     wrapper.classList.add("children", "tree-root");
 
-    for (const root of roots) {
-      wrapper.appendChild(renderNode(root, 0));
+    for (var i = 0; i < roots.length; i++) {
+      wrapper.appendChild(renderNode(roots[i], 0, changes));
     }
 
     chartEl.appendChild(wrapper);
   }
 
-  function renderNode(node, depth) {
+  function renderNode(node, depth, changes) {
     const treeNode = document.createElement("div");
     treeNode.className = "tree-node";
 
@@ -148,6 +316,32 @@
     titleEl.className = "title";
     titleEl.textContent = node.title;
     card.appendChild(titleEl);
+
+    var change = changes.get(node.name);
+    if (change) {
+      if (change.moved && change.edited) {
+        card.classList.add("diff-both");
+      } else if (change.moved) {
+        card.classList.add("diff-moved");
+      } else if (change.edited) {
+        card.classList.add("diff-edited");
+      }
+
+      if (change.moved) {
+        var wasUnder = document.createElement("div");
+        wasUnder.className = "was-under";
+        var origMgr = change.originalManager || "no one";
+        wasUnder.textContent = "\u2190 was under " + origMgr;
+        card.appendChild(wasUnder);
+      }
+    }
+
+    card.addEventListener("click", function () {
+      if (selectedPerson && panelHasUnsavedChanges()) {
+        if (!confirm("You have unsaved changes. Discard them?")) return;
+      }
+      openPanel(node.name);
+    });
 
     if (isManager) {
       // Reports count — click to expand/collapse all directs
@@ -202,7 +396,7 @@
       childrenContainer.className = "children";
 
       for (const child of node.children) {
-        childrenContainer.appendChild(renderNode(child, depth + 1));
+        childrenContainer.appendChild(renderNode(child, depth + 1, changes));
       }
 
       treeNode.appendChild(childrenContainer);
@@ -436,7 +630,7 @@
       return;
     }
 
-    const result = parseCSV(text);
+    var result = parseCSV(text);
 
     if (result.error === "empty") {
       showError("Please upload a CSV file");
@@ -445,15 +639,37 @@
     } else if (result.error === "no_data") {
       showError("No valid data found in CSV");
     } else {
-      const roots = buildTree(result.people);
-      renderTree(roots);
-      applyDefaultExpansion(getDefaultDepth());
+      originalPeople = result.people.map(function (p) {
+        return { name: p.name, title: p.title, manager: p.manager };
+      });
+      currentPeople = result.people.map(function (p) {
+        return { name: p.name, title: p.title, manager: p.manager };
+      });
+      selectedPerson = null;
+      rebuildAndRender();
     }
+  }
+
+  function rebuildAndRender() {
+    var roots = buildTree(currentPeople);
+    renderTree(roots);
+    applyDefaultExpansion(getDefaultDepth());
+    highlightSelectedCard();
+  }
+
+  function csvEscape(value) {
+    if (value.indexOf(",") !== -1 || value.indexOf('"') !== -1 || value.indexOf("\n") !== -1) {
+      return '"' + value.replace(/"/g, '""') + '"';
+    }
+    return value;
   }
 
   // ── Event listeners ──
 
   uploadBtn.addEventListener("click", function () {
+    if (hasChanges()) {
+      if (!confirm("You have unsaved changes. Load a new file?")) return;
+    }
     fileInput.click();
   });
 
@@ -489,5 +705,72 @@
   expandBtn.addEventListener("click", expandAll);
   mgmtBtn.addEventListener("click", expandManagers);
   collapseBtn.addEventListener("click", collapseAll);
+
+  panelCloseBtn.addEventListener("click", function () {
+    if (panelHasUnsavedChanges()) {
+      if (!confirm("You have unsaved changes. Discard them?")) return;
+    }
+    closePanel();
+  });
+
+  panelCancelBtn.addEventListener("click", function () {
+    if (panelHasUnsavedChanges()) {
+      if (!confirm("You have unsaved changes. Discard them?")) return;
+    }
+    closePanel();
+  });
+
+  panelSaveBtn.addEventListener("click", function () {
+    if (!selectedPerson) return;
+
+    var newTitle = panelTitle.value.trim();
+    var newManager = panelManager.value;
+
+    currentPeople = currentPeople.map(function (p) {
+      if (p.name === selectedPerson) {
+        return { name: p.name, title: newTitle, manager: newManager };
+      }
+      return { name: p.name, title: p.title, manager: p.manager };
+    });
+
+    var savedName = selectedPerson;
+    rebuildAndRender();
+    updateToolbarButtons();
+    updateLegend();
+    openPanel(savedName);
+  });
+
+  saveCsvBtn.addEventListener("click", function () {
+    var lines = ["Name,Title,Manager"];
+
+    for (var i = 0; i < currentPeople.length; i++) {
+      var p = currentPeople[i];
+      lines.push(csvEscape(p.name) + "," + csvEscape(p.title) + "," + csvEscape(p.manager));
+    }
+
+    var csvText = lines.join("\n") + "\n";
+    var blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+
+    var today = new Date().toISOString().slice(0, 10);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "reorg-" + today + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  resetBtn.addEventListener("click", function () {
+    if (!confirm("Discard all changes?")) return;
+
+    currentPeople = originalPeople.map(function (p) {
+      return { name: p.name, title: p.title, manager: p.manager };
+    });
+    selectedPerson = null;
+    closePanel();
+    rebuildAndRender();
+    updateToolbarButtons();
+    updateLegend();
+  });
 
 })();

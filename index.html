@@ -15,11 +15,46 @@
       <button id="expand-btn" class="btn btn-expand">Expand All</button>
       <button id="mgmt-btn" class="btn btn-mgmt">Managers Only</button>
       <button id="collapse-btn" class="btn btn-collapse">Collapse All</button>
+      <button id="save-csv-btn" class="btn btn-save" hidden>Save CSV</button>
+      <button id="reset-btn" class="btn btn-reset" hidden>Reset</button>
     </div>
   </header>
   <main id="chart">
+    <div id="change-legend" class="change-legend" hidden>
+      <span class="legend-item legend-moved">Moved</span>
+      <span class="legend-item legend-edited">Edited</span>
+      <span class="legend-item legend-both">Moved + Edited</span>
+    </div>
     <p class="empty-state">Upload a CSV to get started</p>
   </main>
+  <aside id="edit-panel" class="edit-panel" hidden>
+    <div class="panel-header">
+      <h2>Edit Person</h2>
+      <button id="panel-close-btn" class="panel-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-field">
+        <label>Name</label>
+        <div id="panel-name" class="panel-readonly"></div>
+      </div>
+      <div class="panel-field">
+        <label for="panel-title">Title</label>
+        <input type="text" id="panel-title" class="panel-input">
+      </div>
+      <div class="panel-field">
+        <label for="panel-manager">Manager</label>
+        <select id="panel-manager" class="panel-select"></select>
+      </div>
+      <div class="panel-field">
+        <label>Direct Reports</label>
+        <ul id="panel-reports" class="panel-reports-list"></ul>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <button id="panel-save-btn" class="btn btn-panel-save">Save</button>
+      <button id="panel-cancel-btn" class="btn btn-panel-cancel">Cancel</button>
+    </div>
+  </aside>
   <script src="app.js" defer></script>
 </body>
 </html>
