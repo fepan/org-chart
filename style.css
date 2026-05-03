@@ -310,6 +310,28 @@ main#chart {
   border-bottom-color: #2d3748;
 }
 
+.org-tooltip.tooltip-right {
+  left: 0;
+  transform: none;
+}
+
+.org-tooltip.tooltip-right::after {
+  left: 20px;
+  transform: none;
+}
+
+.org-tooltip.tooltip-left {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.org-tooltip.tooltip-left::after {
+  left: auto;
+  right: 20px;
+  transform: none;
+}
+
 .node-card.manager:hover > .org-tooltip {
   display: block;
 }
