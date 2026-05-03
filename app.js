@@ -489,6 +489,9 @@
           s.managersOfManagers + " Mgrs of Mgrs · " +
           s.openRoles + " Open · " +
           s.ratio + " Assoc/Mgr";
+        var barBottom = statsBar.getBoundingClientRect().bottom;
+        var cardTop = card.getBoundingClientRect().top;
+        tooltip.classList.toggle("tooltip-below", cardTop - barBottom < 40);
       });
     }
 

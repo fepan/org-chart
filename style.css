@@ -269,7 +269,6 @@ main#chart {
 .org-tooltip {
   display: none;
   position: absolute;
-  bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
   background: #2d3748;
@@ -284,14 +283,31 @@ main#chart {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.org-tooltip {
+  bottom: calc(100% + 8px);
+}
+
 .org-tooltip::after {
   content: "";
   position: absolute;
-  top: 100%;
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
+}
+
+.org-tooltip:not(.tooltip-below)::after {
+  top: 100%;
   border-top-color: #2d3748;
+}
+
+.org-tooltip.tooltip-below {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+.org-tooltip.tooltip-below::after {
+  bottom: 100%;
+  border-bottom-color: #2d3748;
 }
 
 .node-card.manager:hover > .org-tooltip {
