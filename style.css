@@ -266,6 +266,20 @@ main#chart {
   border-radius: 2px;
 }
 
+.node-card .open-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #c05621;
+  background: #fefcbf;
+  border: 1px solid #f6e05e;
+  border-radius: 8px;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
 .node-card .toggle {
   position: absolute;
   top: 8px;
@@ -560,6 +574,12 @@ body.panel-open main#chart {
     gap: 12px;
     padding: 4px 12px;
     font-size: 11px;
+  }
+
+  .node-card .open-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    margin-left: 6px;
   }
 
   main#chart {

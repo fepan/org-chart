@@ -25,6 +25,7 @@
   var statManagers = document.getElementById("stat-managers");
   var statMgrOfMgr = document.getElementById("stat-mgr-of-mgr");
   var statRatio = document.getElementById("stat-ratio");
+  var statOpenRoles = document.getElementById("stat-open-roles");
 
   let originalPeople = [];
   let currentPeople = [];
@@ -281,12 +282,26 @@
 
   // ── Stats ──
 
+  function isOpenRole(name) {
+    return name.toLowerCase().includes("backfill") || /\d/.test(name);
+  }
+
+  function countOpenRoles(node) {
+    var count = isOpenRole(node.name) ? 1 : 0;
+    for (var i = 0; i < node.children.length; i++) {
+      count += countOpenRoles(node.children[i]);
+    }
+    return count;
+  }
+
   function computeOrgStats(roots) {
     var associates = 0;
     var managers = 0;
     var managersOfManagers = 0;
+    var openRoles = 0;
 
     function walk(node) {
+      if (isOpenRole(node.name)) { openRoles++; }
       if (node.children.length === 0) {
         associates++;
       } else {
@@ -313,6 +328,7 @@
       associates: associates,
       managers: managers,
       managersOfManagers: managersOfManagers,
+      openRoles: openRoles,
       ratio: managers > 0 ? (associates / managers).toFixed(1) : "N/A"
     };
   }
@@ -327,6 +343,7 @@
     statAssoc.textContent = stats.associates;
     statManagers.textContent = stats.managers;
     statMgrOfMgr.textContent = stats.managersOfManagers;
+    statOpenRoles.textContent = stats.openRoles;
     statRatio.textContent = stats.ratio;
     statsBar.hidden = false;
   }
@@ -430,6 +447,13 @@
           toggleNodeAll(treeNode);
         }
       });
+      var openCount = countOpenRoles(node);
+      if (openCount > 0) {
+        var openEl = document.createElement("span");
+        openEl.className = "open-badge";
+        openEl.textContent = openCount + " open";
+        reportsEl.appendChild(openEl);
+      }
       card.appendChild(reportsEl);
 
       // Toggle indicator — click to expand/collapse managers only
