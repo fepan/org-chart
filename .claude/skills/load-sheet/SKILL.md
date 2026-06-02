@@ -60,12 +60,16 @@ Default sheet name is the one matching the `gid` in the URL. If no sheet name ca
 - `FILTER_COLUMN` — the **exact** source column header to filter on (e.g., "Proposed Pillar"). Set to empty string `""` to skip filtering.
 - `FILTER_MATCH` — the exact value to match (e.g., "Infrastructure (Rom)")
 
-First, read the header row to discover available columns:
+**Always read the header row first** to discover the actual column names. Do not assume column names from previous runs — spreadsheets change:
 
 ```bash
 gws sheets spreadsheets values get \
   --params '{"spreadsheetId": "SHEET_ID", "range": "SHEET_NAME!1:1"}' --format json
 ```
+
+Check the output and verify:
+1. The filter column name (e.g., "Proposed Pillar") exists in the headers. If it doesn't, show the available headers and ask the user which column to filter on.
+2. The column names used in `COLUMN_MAPPING` match the actual headers. If not, adjust the mapping.
 
 Then build the mapping and run the extraction:
 
@@ -93,9 +97,23 @@ for i, h in enumerate(header):
     if h == filter_column:
         filter_idx = i
 
+# Validate filter column exists when filtering is requested
+if filter_column and filter_idx == -1:
+    print(f'ERROR: Filter column \"{filter_column}\" not found in headers.', file=sys.stderr)
+    print(f'Available headers: {header}', file=sys.stderr)
+    sys.exit(1)
+
+# Validate all required output columns were mapped
 output_cols = ['Name', 'Title', 'Manager']
+for col in output_cols:
+    if col not in col_indices:
+        print(f'ERROR: Required column \"{col}\" not mapped. Check COLUMN_MAPPING.', file=sys.stderr)
+        print(f'Available headers: {header}', file=sys.stderr)
+        sys.exit(1)
+
 max_col = max(list(col_indices.values()) + ([filter_idx] if filter_idx >= 0 else [0]))
 
+matched = 0
 with open('OUTPUT_PATH', 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(output_cols)
@@ -104,7 +122,12 @@ with open('OUTPUT_PATH', 'w', newline='') as f:
             row.append('')
         if filter_idx >= 0 and row[filter_idx].strip() != filter_value:
             continue
+        matched += 1
         writer.writerow([row[col_indices.get(c, 0)] for c in output_cols])
+
+print(f'Wrote {matched} rows (of {len(rows)-1} total)', file=sys.stderr)
+if matched == 0:
+    print(f'WARNING: No rows matched filter \"{filter_column}\" = \"{filter_value}\"', file=sys.stderr)
 "
 ```
 

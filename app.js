@@ -299,6 +299,7 @@
     var managers = 0;
     var managersOfManagers = 0;
     var openRoles = 0;
+    var directOpenRoles = 0;
 
     function walk(node) {
       if (isOpenRole(node.name)) { openRoles++; }
@@ -308,6 +309,7 @@
         managers++;
         var hasManagerChild = false;
         for (var i = 0; i < node.children.length; i++) {
+          if (isOpenRole(node.children[i].name)) { directOpenRoles++; }
           if (node.children[i].children.length > 0) {
             hasManagerChild = true;
           }
@@ -329,6 +331,7 @@
       managers: managers,
       managersOfManagers: managersOfManagers,
       openRoles: openRoles,
+      directOpenRoles: directOpenRoles,
       ratio: managers > 0 ? (associates / managers).toFixed(1) : "N/A"
     };
   }
@@ -447,11 +450,14 @@
           toggleNodeAll(treeNode);
         }
       });
-      var openCount = countOpenRoles(node);
-      if (openCount > 0) {
+      var directOpen = 0;
+      for (var oi = 0; oi < node.children.length; oi++) {
+        if (isOpenRole(node.children[oi].name)) directOpen++;
+      }
+      if (directOpen > 0) {
         var openEl = document.createElement("span");
         openEl.className = "open-badge";
-        openEl.textContent = openCount + " open";
+        openEl.textContent = directOpen + " open";
         reportsEl.appendChild(openEl);
       }
       card.appendChild(reportsEl);
@@ -482,12 +488,17 @@
       card.appendChild(tooltip);
       card.addEventListener("mouseenter", function () {
         var s = computeOrgStats([node]);
+        var myDirectOpen = 0;
+        for (var di = 0; di < node.children.length; di++) {
+          if (isOpenRole(node.children[di].name)) myDirectOpen++;
+        }
         tooltip.textContent =
           s.total + " Total · " +
           s.associates + " Associates · " +
           s.managers + " Managers · " +
           s.managersOfManagers + " Mgrs of Mgrs · " +
-          s.openRoles + " Open · " +
+          myDirectOpen + " Direct Open · " +
+          s.openRoles + " Org Open · " +
           s.ratio + " Assoc/Mgr";
         var cardRect = card.getBoundingClientRect();
         var barBottom = statsBar.getBoundingClientRect().bottom;
