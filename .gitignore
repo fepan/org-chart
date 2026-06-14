@@ -1,3 +1,4 @@
+.env
 .superpowers/
 .gstack/
 .claude/settings.local.json

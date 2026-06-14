@@ -56,9 +56,22 @@ If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code), the in
 
 Requires the [`gws` CLI](https://github.com/nicholasgasior/gws) to be installed and authenticated (`gws auth login`).
 
-### Per-Node Expand
+### Interactions
 
-Each manager card has two click targets:
+- **Click** a manager card — expand/collapse one level
+- **ⓘ icon** or **right-click** — open the edit panel to change title, manager, or view reports
 
-- **Click the "N direct reports" text** — expand/collapse showing all directs (ICs + managers)
-- **Click the +/− icon** — expand/collapse showing only managers in the subtree
+### Import from LDAP
+
+Click **Import LDAP** in the toolbar to fetch an org chart from a corporate LDAP directory. Enter a user's uid and optionally limit the depth.
+
+This requires `ldapsearch` (e.g. `openldap-clients`) and the dev server (`python3 serve.py`).
+
+Configure your LDAP connection by copying the example env file:
+
+```bash
+cp .env.example .env
+# edit .env with your server details
+```
+
+Or export the variables directly: `LDAP_SERVER`, `BASE_DN`, `USER_BASE`.

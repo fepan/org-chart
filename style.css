@@ -663,6 +663,19 @@ body.panel-open #tree-svg {
   50% { opacity: 0.5; }
 }
 
+.ldap-hint {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ldap-hint code {
+  background: var(--card);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
 .ldap-status.loading::before {
   content: "";
   display: inline-block;
