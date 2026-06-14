@@ -634,19 +634,25 @@
         for (var i = 0; i < ch.length; i++) {
           if (isOpenRole(ch[i].name)) myDirectOpen++;
         }
-        tooltipEl.innerHTML =
-          '<div class="tt-name">' + d.data.name + '</div>' +
-          '<div class="tt-title">' + d.data.title + '</div>' +
-          '<div class="tt-stats">' + s.total + ' Total · ' +
-            s.associates + ' Associates · ' +
-            s.managers + ' Managers</div>' +
-          '<div class="tt-detail">' +
-            s.managersOfManagers + ' Mgrs of Mgrs · ' +
-            myDirectOpen + ' Direct Open · ' +
-            s.openRoles + ' Org Open · ' +
-            s.ratio + ' Assoc/Mgr · ' +
-            s.avgSpan + ' Avg Span · ' +
-            s.levels + ' Levels</div>';
+        tooltipEl.textContent = "";
+        var nameDiv = document.createElement("div");
+        nameDiv.className = "tt-name";
+        nameDiv.textContent = d.data.name;
+        var titleDiv = document.createElement("div");
+        titleDiv.className = "tt-title";
+        titleDiv.textContent = d.data.title;
+        var statsDiv = document.createElement("div");
+        statsDiv.className = "tt-stats";
+        statsDiv.textContent = s.total + ' Total · ' + s.associates + ' Associates · ' + s.managers + ' Managers';
+        var detailDiv = document.createElement("div");
+        detailDiv.className = "tt-detail";
+        detailDiv.textContent = s.managersOfManagers + ' Mgrs of Mgrs · ' +
+          myDirectOpen + ' Direct Open · ' + s.openRoles + ' Org Open · ' +
+          s.ratio + ' Assoc/Mgr · ' + s.avgSpan + ' Avg Span · ' + s.levels + ' Levels';
+        tooltipEl.appendChild(nameDiv);
+        tooltipEl.appendChild(titleDiv);
+        tooltipEl.appendChild(statsDiv);
+        tooltipEl.appendChild(detailDiv);
         tooltipEl.classList.add("show");
       })
       .on("mousemove", function (e) {

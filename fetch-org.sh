@@ -35,6 +35,11 @@ usage() {
 if [ $# -lt 1 ]; then usage; fi
 
 ROOT_UID="$1"
+
+if ! [[ "$ROOT_UID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "Error: uid contains invalid characters (letters, digits, . _ - only)" >&2
+    exit 1
+fi
 MAX_DEPTH="${2:-999}"
 OUTFILE="${3:-data/${ROOT_UID}.csv}"
 
