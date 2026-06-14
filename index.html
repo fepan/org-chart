@@ -4,17 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Org Chart Viewer</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
     <h1>Org Chart</h1>
     <div class="header-actions">
+      <div class="search-box">
+        <input type="text" id="search" placeholder="Search by name...">
+      </div>
       <input type="file" id="file-input" accept=".csv" hidden>
       <button id="upload-btn" class="btn btn-upload">Upload CSV</button>
-      <button id="expand-btn" class="btn btn-expand">Expand All</button>
-      <button id="mgmt-btn" class="btn btn-mgmt">Managers Only</button>
-      <button id="collapse-btn" class="btn btn-collapse">Collapse All</button>
+      <button id="ldap-btn" class="btn btn-ldap">Import LDAP</button>
+      <input type="file" id="plan-file-input" accept=".csv" hidden>
+      <button id="plan-btn" class="btn btn-plan" hidden>Load Plan</button>
+      <button id="expand-btn" class="btn btn-action">Expand All</button>
+      <button id="mgmt-btn" class="btn btn-action">Managers Only</button>
+      <button id="collapse-btn" class="btn btn-action">Collapse All</button>
       <button id="save-csv-btn" class="btn btn-save" hidden>Save CSV</button>
       <button id="reset-btn" class="btn btn-reset" hidden>Reset</button>
     </div>
@@ -26,15 +34,44 @@
     <span class="stat-item"><strong id="stat-mgr-of-mgr">0</strong> Mgrs of Mgrs</span>
     <span class="stat-item"><strong id="stat-open-roles">0</strong> Open</span>
     <span class="stat-item"><strong id="stat-ratio">0</strong> Assoc / Mgr</span>
+    <span class="stat-item"><strong id="stat-avg-span">0</strong> Avg Span</span>
+    <span class="stat-item"><strong id="stat-levels">0</strong> Levels</span>
   </div>
   <main id="chart">
     <div id="change-legend" class="change-legend" hidden>
       <span class="legend-item legend-moved">Moved</span>
       <span class="legend-item legend-edited">Edited</span>
       <span class="legend-item legend-both">Moved + Edited</span>
+      <span class="legend-item legend-added">Added</span>
+      <span class="legend-item legend-removed">Removed</span>
     </div>
     <p class="empty-state">Upload a CSV to get started</p>
+    <svg id="tree-svg"></svg>
   </main>
+  <div class="tooltip" id="tooltip"></div>
+  <div id="ldap-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Import from LDAP</h2>
+        <button id="ldap-modal-close" class="panel-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="panel-field">
+          <label for="ldap-uid">UID or Name</label>
+          <input type="text" id="ldap-uid" class="panel-input" placeholder="e.g. jsmith">
+        </div>
+        <div class="panel-field">
+          <label for="ldap-depth">Max Depth (optional)</label>
+          <input type="number" id="ldap-depth" class="panel-input" placeholder="All levels" min="1" max="20">
+        </div>
+        <div id="ldap-status" class="ldap-status" hidden></div>
+      </div>
+      <div class="modal-actions">
+        <button id="ldap-cancel-btn" class="btn btn-panel-cancel">Cancel</button>
+        <button id="ldap-import-btn" class="btn btn-ldap">Import</button>
+      </div>
+    </div>
+  </div>
   <aside id="edit-panel" class="edit-panel" hidden>
     <div class="panel-header">
       <h2>Edit Person</h2>
