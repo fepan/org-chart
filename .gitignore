@@ -1,4 +1,6 @@
+.env
 .superpowers/
 .gstack/
 .claude/settings.local.json
 data/
+org-chart.html

@@ -1,12 +1,13 @@
 (function () {
   "use strict";
 
-  const chartEl = document.getElementById("chart");
-  const fileInput = document.getElementById("file-input");
-  const uploadBtn = document.getElementById("upload-btn");
-  const expandBtn = document.getElementById("expand-btn");
-  const mgmtBtn = document.getElementById("mgmt-btn");
-  const collapseBtn = document.getElementById("collapse-btn");
+  var chartEl = document.getElementById("chart");
+  var fileInput = document.getElementById("file-input");
+  var uploadBtn = document.getElementById("upload-btn");
+  var expandBtn = document.getElementById("expand-btn");
+  var mgmtBtn = document.getElementById("mgmt-btn");
+  var collapseBtn = document.getElementById("collapse-btn");
+  var searchInput = document.getElementById("search");
 
   var editPanel = document.getElementById("edit-panel");
   var panelName = document.getElementById("panel-name");
@@ -25,12 +26,40 @@
   var statManagers = document.getElementById("stat-managers");
   var statMgrOfMgr = document.getElementById("stat-mgr-of-mgr");
   var statRatio = document.getElementById("stat-ratio");
+  var statAvgSpan = document.getElementById("stat-avg-span");
+  var statLevels = document.getElementById("stat-levels");
   var statOpenRoles = document.getElementById("stat-open-roles");
+  var tooltipEl = document.getElementById("tooltip");
+  var emptyState = chartEl.querySelector(".empty-state");
+
+  var planBtn = document.getElementById("plan-btn");
+  var planFileInput = document.getElementById("plan-file-input");
+  var ldapBtn = document.getElementById("ldap-btn");
+  var ldapModal = document.getElementById("ldap-modal");
+  var ldapModalClose = document.getElementById("ldap-modal-close");
+  var ldapUidInput = document.getElementById("ldap-uid");
+  var ldapDepthInput = document.getElementById("ldap-depth");
+  var ldapImportBtn = document.getElementById("ldap-import-btn");
+  var ldapCancelBtn = document.getElementById("ldap-cancel-btn");
+  var ldapStatus = document.getElementById("ldap-status");
 
   let originalPeople = [];
   let currentPeople = [];
   let selectedPerson = null;
   var currentViewMode = "default";
+
+  // D3 state
+  var svg, g, zoomBehavior;
+  var d3Root = null;
+  var nodeIdCounter = 0;
+
+  var levelColors = ["#e85d4a", "#e8774a", "#f0a03c", "#4aad8b", "#4a90c4", "#7b6bb5"];
+  var levelFills = ["#2d1815", "#2d1f15", "#2d2515", "#152d25", "#15222d", "#1f1a2d"];
+  var depthColors = ["transparent", "#555", "#7b6bb5", "#4a90c4", "#4aad8b", "#f0a03c", "#e85d4a"];
+
+  var rectW = 170, rectH = 40;
+
+  // ── Change Tracking ──
 
   function getChanges() {
     var changes = new Map();
@@ -40,8 +69,23 @@
 
     for (var i = 0; i < currentPeople.length; i++) {
       var curr = currentPeople[i];
+
+      if (curr._removed) {
+        changes.set(curr.name, {
+          moved: false, edited: false, added: false, removed: true,
+          originalManager: curr.manager
+        });
+        continue;
+      }
+
       var orig = origMap.get(curr.name);
-      if (!orig) continue;
+      if (!orig) {
+        changes.set(curr.name, {
+          moved: false, edited: false, added: true, removed: false,
+          originalManager: ""
+        });
+        continue;
+      }
 
       var moved = curr.manager !== orig.manager;
       var edited = curr.title !== orig.title;
@@ -50,6 +94,8 @@
         changes.set(curr.name, {
           moved: moved,
           edited: edited,
+          added: false,
+          removed: false,
           originalManager: orig.manager
         });
       }
@@ -83,7 +129,6 @@
     panelName.textContent = person.name;
     panelTitle.value = person.title;
 
-    // Populate manager dropdown — exclude self and subtree
     var excluded = getSubtreeNames(name);
     excluded.push(name);
 
@@ -107,7 +152,6 @@
 
     panelManager.value = person.manager;
 
-    // Populate direct reports
     panelReports.innerHTML = "";
     var reports = currentPeople.filter(function (p) { return p.manager === name; });
     for (var j = 0; j < reports.length; j++) {
@@ -116,14 +160,14 @@
       panelReports.appendChild(li);
     }
 
-    // Show panel
     editPanel.removeAttribute("hidden");
     requestAnimationFrame(function () {
       editPanel.classList.add("visible");
     });
     document.body.classList.add("panel-open");
 
-    highlightSelectedCard();
+    highlightSelectedNode();
+    setTimeout(fitToView, 300);
   }
 
   function closePanel() {
@@ -131,30 +175,21 @@
     editPanel.classList.remove("visible");
     document.body.classList.remove("panel-open");
 
-    var prev = chartEl.querySelector(".node-card.selected");
-    if (prev) prev.classList.remove("selected");
+    highlightSelectedNode();
 
     setTimeout(function () {
       if (!editPanel.classList.contains("visible")) {
         editPanel.setAttribute("hidden", "");
       }
+      fitToView();
     }, 250);
   }
 
-  function highlightSelectedCard() {
-    var prev = chartEl.querySelector(".node-card.selected");
-    if (prev) prev.classList.remove("selected");
-
-    if (!selectedPerson) return;
-
-    var cards = chartEl.querySelectorAll(".node-card");
-    for (var i = 0; i < cards.length; i++) {
-      var nameEl = cards[i].querySelector(".name");
-      if (nameEl && nameEl.textContent === selectedPerson) {
-        cards[i].classList.add("selected");
-        break;
-      }
-    }
+  function highlightSelectedNode() {
+    if (!svg) return;
+    d3.selectAll(".node-group").classed("node-selected", function (d) {
+      return d && d.data && d.data.name === selectedPerson;
+    });
   }
 
   function panelHasUnsavedChanges() {
@@ -168,6 +203,7 @@
     var changed = hasChanges();
     saveCsvBtn.hidden = !changed;
     resetBtn.hidden = !changed;
+    planBtn.hidden = originalPeople.length === 0;
   }
 
   function updateLegend() {
@@ -300,20 +336,26 @@
     var managersOfManagers = 0;
     var openRoles = 0;
     var directOpenRoles = 0;
+    var maxLevels = 0;
+    var totalSpan = 0;
+    var spanCount = 0;
 
-    function walk(node) {
+    function walk(node, depth) {
       if (isOpenRole(node.name)) { openRoles++; }
       if (node.children.length === 0) {
         associates++;
+        if (depth > maxLevels) maxLevels = depth;
       } else {
         managers++;
+        totalSpan += node.children.length;
+        spanCount++;
         var hasManagerChild = false;
         for (var i = 0; i < node.children.length; i++) {
           if (isOpenRole(node.children[i].name)) { directOpenRoles++; }
           if (node.children[i].children.length > 0) {
             hasManagerChild = true;
           }
-          walk(node.children[i]);
+          walk(node.children[i], depth + 1);
         }
         if (hasManagerChild) {
           managersOfManagers++;
@@ -322,7 +364,7 @@
     }
 
     for (var i = 0; i < roots.length; i++) {
-      walk(roots[i]);
+      walk(roots[i], 0);
     }
 
     return {
@@ -332,7 +374,9 @@
       managersOfManagers: managersOfManagers,
       openRoles: openRoles,
       directOpenRoles: directOpenRoles,
-      ratio: managers > 0 ? (associates / managers).toFixed(1) : "N/A"
+      ratio: managers > 0 ? (associates / managers).toFixed(1) : "N/A",
+      avgSpan: spanCount > 0 ? (totalSpan / spanCount).toFixed(1) : "N/A",
+      levels: maxLevels
     };
   }
 
@@ -348,398 +392,810 @@
     statMgrOfMgr.textContent = stats.managersOfManagers;
     statOpenRoles.textContent = stats.openRoles;
     statRatio.textContent = stats.ratio;
+    statAvgSpan.textContent = stats.avgSpan;
+    statLevels.textContent = stats.levels;
     statsBar.hidden = false;
   }
 
-  // ── Rendering ──
+  // ── D3 Helpers ──
 
-  function renderTree(roots) {
-    var changes = getChanges();
-    chartEl.innerHTML = "";
-
-    if (legendEl) {
-      legendEl.hidden = changes.size === 0;
-      // Re-append legend since innerHTML cleared it
-      if (changes.size > 0) {
-        chartEl.appendChild(legendEl);
-        legendEl.removeAttribute("hidden");
-      }
+  function countAll(data) {
+    var n = 1;
+    var ch = data.children || [];
+    for (var i = 0; i < ch.length; i++) {
+      n += countAll(ch[i]);
     }
-
-    var wrapper = document.createElement("div");
-    wrapper.classList.add("children", "tree-root");
-
-    for (var i = 0; i < roots.length; i++) {
-      wrapper.appendChild(renderNode(roots[i], 0, changes));
-    }
-
-    chartEl.appendChild(wrapper);
+    return n;
   }
 
-  function renderNode(node, depth, changes) {
-    const treeNode = document.createElement("div");
-    treeNode.className = "tree-node";
-
-    const card = document.createElement("div");
-    const isManager = node.children.length > 0;
-    card.className = "node-card " + (isManager ? "manager" : "leaf");
-
-    // Name
-    const nameEl = document.createElement("div");
-    nameEl.className = "name";
-    nameEl.textContent = node.name;
-    card.appendChild(nameEl);
-
-    // Title
-    const titleEl = document.createElement("div");
-    titleEl.className = "title";
-    titleEl.textContent = node.title;
-    card.appendChild(titleEl);
-
-    var change = changes.get(node.name);
-    if (change) {
-      if (change.moved && change.edited) {
-        card.classList.add("diff-both");
-      } else if (change.moved) {
-        card.classList.add("diff-moved");
-      } else if (change.edited) {
-        card.classList.add("diff-edited");
-      }
-
-      if (change.moved) {
-        var wasUnder = document.createElement("div");
-        wasUnder.className = "was-under";
-        var origMgr = change.originalManager || "no one";
-        wasUnder.textContent = "\u2190 was under " + origMgr;
-        card.appendChild(wasUnder);
-      }
+  function countManagersInData(data) {
+    var ch = data.children || [];
+    if (ch.length === 0) return 0;
+    var n = 1;
+    for (var i = 0; i < ch.length; i++) {
+      n += countManagersInData(ch[i]);
     }
+    return n;
+  }
 
-    card.addEventListener("click", function () {
-      if (selectedPerson === node.name) {
-        if (panelHasUnsavedChanges()) {
-          if (!confirm("You have unsaved changes. Discard them?")) return;
+  function mgrDepth(data) {
+    var ch = data.children || [];
+    if (ch.length === 0) return 0;
+    var max = 0;
+    for (var i = 0; i < ch.length; i++) {
+      var d = mgrDepth(ch[i]);
+      if (d > max) max = d;
+    }
+    return 1 + max;
+  }
+
+  function truncText(t, maxLen) {
+    if (!t) return "";
+    return t.length > maxLen ? t.slice(0, maxLen - 2) + "..." : t;
+  }
+
+  function diagonal(s, t) {
+    return "M" + s.y + "," + s.x +
+      "C" + ((s.y + t.y) / 2) + "," + s.x +
+      " " + ((s.y + t.y) / 2) + "," + t.x +
+      " " + t.y + "," + t.x;
+  }
+
+  // ── D3 Initialization ──
+
+  function initD3() {
+    svg = d3.select("#tree-svg");
+    g = svg.append("g");
+    zoomBehavior = d3.zoom()
+      .scaleExtent([0.1, 3])
+      .on("zoom", function (e) { g.attr("transform", e.transform); });
+    svg.call(zoomBehavior);
+    svg.on("dblclick.zoom", null);
+  }
+
+  // ── D3 Rendering ──
+
+  function updateChart(source) {
+    if (!d3Root) return;
+
+    var changes = getChanges();
+    var treeLayout = d3.tree().nodeSize([48, 240]);
+    treeLayout(d3Root);
+
+    var nodes = d3Root.descendants();
+    var links = d3Root.links();
+
+    // Filter out virtual root from rendering
+    var visibleNodes = nodes.filter(function (d) { return d.data.name !== "__root__"; });
+    var visibleLinks = links.filter(function (d) {
+      return d.source.data.name !== "__root__" && d.target.data.name !== "__root__";
+    });
+    // For virtual root, draw links from root's children as if they were roots
+    var rootLinks = links.filter(function (d) {
+      return d.source.data.name === "__root__";
+    });
+
+    var transition = d3.transition().duration(400);
+
+    // ── Links ──
+    var link = g.selectAll("path.link").data(visibleLinks.concat(rootLinks), function (d) { return d.target.id; });
+
+    var linkEnter = link.enter().insert("path", "g")
+      .attr("class", "link")
+      .attr("d", function () {
+        var o = { x: source.x0 || 0, y: source.y0 || 0 };
+        return diagonal(o, o);
+      });
+
+    linkEnter.merge(link).transition(transition)
+      .attr("d", function (d) { return diagonal(d.source, d.target); });
+
+    link.exit().transition(transition)
+      .attr("d", function () {
+        var o = { x: source.x, y: source.y };
+        return diagonal(o, o);
+      }).remove();
+
+    // ── Nodes ──
+    var node = g.selectAll("g.node-group").data(visibleNodes, function (d) { return d.id; });
+
+    var nodeEnter = node.enter().append("g")
+      .attr("class", "node-group")
+      .attr("transform", "translate(" + (source.y0 || 0) + "," + (source.x0 || 0) + ")");
+
+    // Card background rect
+    nodeEnter.append("rect")
+      .attr("class", "node-rect")
+      .attr("width", rectW)
+      .attr("height", rectH)
+      .attr("x", -rectW / 2)
+      .attr("y", -rectH / 2);
+
+    // Name text
+    nodeEnter.append("text")
+      .attr("class", "node-name")
+      .attr("dy", -4)
+      .attr("text-anchor", "middle");
+
+    // Title text
+    nodeEnter.append("text")
+      .attr("class", "node-title-text")
+      .attr("dy", 8)
+      .attr("text-anchor", "middle");
+
+    // Reports count (below name/title)
+    nodeEnter.append("text")
+      .attr("class", "node-count")
+      .attr("x", -rectW / 2 + 8)
+      .attr("dy", rectH / 2 - 3)
+      .attr("text-anchor", "start");
+
+    // Toggle indicator (right side of card)
+    nodeEnter.append("text")
+      .attr("class", "node-toggle")
+      .attr("x", rectW / 2 - 12)
+      .attr("dy", 4)
+      .attr("text-anchor", "middle");
+
+    // Depth badge circle
+    nodeEnter.append("circle")
+      .attr("class", "depth-circle")
+      .attr("cx", rectW / 2 - 4)
+      .attr("cy", -rectH / 2 + 4)
+      .attr("r", 8);
+
+    // Depth badge text
+    nodeEnter.append("text")
+      .attr("class", "depth-badge")
+      .attr("x", rectW / 2 - 4)
+      .attr("y", -rectH / 2 + 7)
+      .attr("text-anchor", "middle");
+
+    // Open roles badge rect (inside card, top-right area)
+    nodeEnter.append("rect")
+      .attr("class", "node-open-badge-rect")
+      .attr("x", rectW / 2 - 48)
+      .attr("y", -rectH / 2)
+      .attr("width", 0)
+      .attr("height", 14)
+      .attr("rx", 0).attr("ry", 0);
+
+    // Open roles badge text
+    nodeEnter.append("text")
+      .attr("class", "node-open-badge-text")
+      .attr("x", rectW / 2 - 44)
+      .attr("y", -rectH / 2 + 10)
+      .attr("text-anchor", "start");
+
+    // Avg span text (inside card, bottom-right)
+    nodeEnter.append("text")
+      .attr("class", "node-span")
+      .attr("x", rectW / 2 - 24)
+      .attr("dy", rectH / 2 - 3)
+      .attr("text-anchor", "end");
+
+    // "Was under" text for moved nodes (above card)
+    nodeEnter.append("text")
+      .attr("class", "node-was-under")
+      .attr("dy", -rectH / 2 - 4)
+      .attr("text-anchor", "middle");
+
+    // Info icon circle
+    nodeEnter.append("circle")
+      .attr("class", "node-info-circle")
+      .attr("cx", -rectW / 2 + 9)
+      .attr("cy", -rectH / 2 + 9)
+      .attr("r", 6);
+
+    // Info icon "i" text
+    nodeEnter.append("text")
+      .attr("class", "node-info-text")
+      .attr("x", -rectW / 2 + 9)
+      .attr("y", -rectH / 2 + 12)
+      .attr("text-anchor", "middle")
+      .text("i");
+
+    // ── Click handlers ──
+
+    // Click anywhere on card → expand/collapse one level
+    nodeEnter.on("click", function (e, d) {
+      e.stopPropagation();
+      toggleNodeOneLevel(d);
+      updateChart(d);
+    });
+
+    // (i) icon intercepts click → open edit panel instead
+    nodeEnter.each(function () {
+      var el = d3.select(this);
+      el.select(".node-info-circle").on("click", function (e, d) {
+        e.stopPropagation();
+        handleNodeClick(d);
+      });
+      el.select(".node-info-text").on("click", function (e, d) {
+        e.stopPropagation();
+        handleNodeClick(d);
+      });
+    });
+
+    // Right-click on card → open edit panel
+    nodeEnter.on("contextmenu", function (e, d) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleNodeClick(d);
+    });
+
+    // ── Tooltip handlers ──
+    nodeEnter
+      .on("mouseenter", function (e, d) {
+        if (!d.data._isManager) return;
+        var s = computeOrgStats([d.data]);
+        var myDirectOpen = 0;
+        var ch = d.data.children || [];
+        for (var i = 0; i < ch.length; i++) {
+          if (isOpenRole(ch[i].name)) myDirectOpen++;
         }
-        closePanel();
-        return;
-      }
-      if (selectedPerson && panelHasUnsavedChanges()) {
+        tooltipEl.textContent = "";
+        var nameDiv = document.createElement("div");
+        nameDiv.className = "tt-name";
+        nameDiv.textContent = d.data.name;
+        var titleDiv = document.createElement("div");
+        titleDiv.className = "tt-title";
+        titleDiv.textContent = d.data.title;
+        var statsDiv = document.createElement("div");
+        statsDiv.className = "tt-stats";
+        statsDiv.textContent = s.total + ' Total · ' + s.associates + ' Associates · ' + s.managers + ' Managers';
+        var detailDiv = document.createElement("div");
+        detailDiv.className = "tt-detail";
+        detailDiv.textContent = s.managersOfManagers + ' Mgrs of Mgrs · ' +
+          myDirectOpen + ' Direct Open · ' + s.openRoles + ' Org Open · ' +
+          s.ratio + ' Assoc/Mgr · ' + s.avgSpan + ' Avg Span · ' + s.levels + ' Levels';
+        tooltipEl.appendChild(nameDiv);
+        tooltipEl.appendChild(titleDiv);
+        tooltipEl.appendChild(statsDiv);
+        tooltipEl.appendChild(detailDiv);
+        tooltipEl.classList.add("show");
+      })
+      .on("mousemove", function (e) {
+        tooltipEl.style.left = (e.pageX + 14) + "px";
+        tooltipEl.style.top = (e.pageY - 14) + "px";
+      })
+      .on("mouseleave", function () {
+        tooltipEl.classList.remove("show");
+      });
+
+    // ── Update selection ──
+    var nodeUpdate = nodeEnter.merge(node);
+
+    nodeUpdate.transition(transition)
+      .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; });
+
+    // Update rect colors based on depth and diff
+    nodeUpdate.select(".node-rect")
+      .attr("fill", function (d) {
+        var change = changes.get(d.data.name);
+        if (change) {
+          if (change.removed) return "#2d1515";
+          if (change.added) return "#152d1a";
+          if (change.moved) return "#2d1f15";
+          if (change.edited) return "#1f1a2d";
+        }
+        return levelFills[Math.min(d.depth, 5)];
+      })
+      .attr("stroke", function (d) {
+        var change = changes.get(d.data.name);
+        if (change) {
+          if (change.removed) return "#fc8181";
+          if (change.added) return "#38a169";
+          if (change.moved) return "#dd6b20";
+          if (change.edited) return "#805ad5";
+        }
+        return levelColors[Math.min(d.depth, 5)];
+      })
+      .attr("stroke-width", function (d) {
+        return changes.has(d.data.name) ? 2 : 1.5;
+      })
+      .attr("stroke-dasharray", function (d) {
+        var change = changes.get(d.data.name);
+        return (change && change.removed) ? "6,3" : "none";
+      });
+
+    nodeUpdate.select(".node-name")
+      .text(function (d) { return truncText(d.data.name, 26); })
+      .attr("opacity", function (d) {
+        var change = changes.get(d.data.name);
+        return (change && change.removed) ? 0.4 : 1;
+      });
+
+    nodeUpdate.select(".node-title-text")
+      .text(function (d) { return truncText(d.data.title, 32); })
+      .attr("opacity", function (d) {
+        var change = changes.get(d.data.name);
+        return (change && change.removed) ? 0.4 : 1;
+      });
+
+    // Reports count
+    nodeUpdate.select(".node-count")
+      .text(function (d) {
+        if (!d.data._isManager) return "";
+        var allCh = d._allChildren || d.children || d._children || [];
+        var count = allCh.length;
+        if (d._children && !d.children) {
+          return "+" + countAll(d.data) + " (" + count + " direct)";
+        }
+        return count + " report" + (count !== 1 ? "s" : "");
+      })
+      .attr("fill", function (d) { return levelColors[Math.min(d.depth, 5)]; });
+
+    // Toggle icon
+    nodeUpdate.select(".node-toggle")
+      .text(function (d) {
+        if (!d.data._isManager) return "";
+        if (d.children) return "−";
+        if ((d._children && d._children.length > 0) || (d._allChildren && d._allChildren.length > 0)) return "+";
+        return "";
+      })
+      .attr("fill", function (d) {
+        if (!d.data._isManager) return "transparent";
+        if (!d.children && !d._children && !d._allChildren) return "transparent";
+        return "#8b8f9a";
+      });
+
+    // Depth badges
+    nodeUpdate.select(".depth-circle")
+      .attr("fill", function (d) {
+        var md = d.data._mgrDepth || 0;
+        return md > 0 ? depthColors[Math.min(md, 6)] : "transparent";
+      });
+
+    nodeUpdate.select(".depth-badge")
+      .text(function (d) {
+        var md = d.data._mgrDepth || 0;
+        return md > 0 ? md : "";
+      });
+
+    // Open roles badges
+    nodeUpdate.select(".node-open-badge-rect")
+      .attr("width", function (d) {
+        if (!d.data._isManager) return 0;
+        var directOpen = 0;
+        var ch = d.data.children || [];
+        for (var i = 0; i < ch.length; i++) {
+          if (isOpenRole(ch[i].name)) directOpen++;
+        }
+        return directOpen > 0 ? 48 : 0;
+      })
+      .attr("fill", "rgba(240, 160, 60, 0.15)")
+      .attr("stroke", "#f0a03c")
+      .attr("stroke-width", 0.5);
+
+    nodeUpdate.select(".node-open-badge-text")
+      .text(function (d) {
+        if (!d.data._isManager) return "";
+        var directOpen = 0;
+        var ch = d.data.children || [];
+        for (var i = 0; i < ch.length; i++) {
+          if (isOpenRole(ch[i].name)) directOpen++;
+        }
+        return directOpen > 0 ? directOpen + " open" : "";
+      })
+      .attr("fill", "#f0a03c");
+
+    // Avg span text
+    nodeUpdate.select(".node-span")
+      .text(function (d) {
+        if (!d.data._isManager) return "";
+        var hc = countAll(d.data);
+        var mgr = countManagersInData(d.data);
+        if (mgr > 0) return "avg span " + ((hc - 1) / mgr).toFixed(1);
+        return "";
+      });
+
+    // Was-under text
+    nodeUpdate.select(".node-was-under")
+      .text(function (d) {
+        var change = changes.get(d.data.name);
+        if (!change) return "";
+        if (change.removed) return "← removed";
+        if (change.added) return "← new";
+        if (change.moved) return "← was under " + (change.originalManager || "no one");
+        return "";
+      })
+      .attr("fill", function (d) {
+        var change = changes.get(d.data.name);
+        if (change && change.removed) return "#fc8181";
+        if (change && change.added) return "#38a169";
+        return "#dd6b20";
+      });
+
+    // ── Exit selection ──
+    node.exit().transition(transition)
+      .attr("transform", "translate(" + source.y + "," + source.x + ")")
+      .remove();
+
+    // Store positions for next transition
+    nodes.forEach(function (d) { d.x0 = d.x; d.y0 = d.y; });
+
+    // Highlight selected
+    highlightSelectedNode();
+  }
+
+  function handleNodeClick(d) {
+    if (selectedPerson === d.data.name) {
+      if (panelHasUnsavedChanges()) {
         if (!confirm("You have unsaved changes. Discard them?")) return;
       }
-      openPanel(node.name);
-    });
-
-    if (isManager) {
-      // Reports count — click to expand/collapse all directs
-      const reportsEl = document.createElement("div");
-      reportsEl.className = "reports";
-      reportsEl.textContent =
-        node.children.length +
-        " direct report" +
-        (node.children.length !== 1 ? "s" : "");
-      reportsEl.setAttribute("tabindex", "0");
-      reportsEl.setAttribute("role", "button");
-      reportsEl.setAttribute("title", "Expand all direct reports");
-      reportsEl.addEventListener("click", function (e) {
-        e.stopPropagation();
-        toggleNodeAll(treeNode);
-      });
-      reportsEl.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          toggleNodeAll(treeNode);
-        }
-      });
-      var directOpen = 0;
-      for (var oi = 0; oi < node.children.length; oi++) {
-        if (isOpenRole(node.children[oi].name)) directOpen++;
-      }
-      if (directOpen > 0) {
-        var openEl = document.createElement("span");
-        openEl.className = "open-badge";
-        openEl.textContent = directOpen + " open";
-        reportsEl.appendChild(openEl);
-      }
-      card.appendChild(reportsEl);
-
-      // Toggle indicator — click to expand/collapse managers only
-      const toggleEl = document.createElement("span");
-      toggleEl.className = "toggle";
-      toggleEl.textContent = "−";
-      toggleEl.setAttribute("tabindex", "0");
-      toggleEl.setAttribute("role", "button");
-      toggleEl.setAttribute("title", "Expand managers only");
-      toggleEl.addEventListener("click", function (e) {
-        e.stopPropagation();
-        toggleNodeManagers(treeNode);
-      });
-      toggleEl.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          toggleNodeManagers(treeNode);
-        }
-      });
-      card.appendChild(toggleEl);
-
-      card.setAttribute("aria-expanded", "true");
-
-      var tooltip = document.createElement("div");
-      tooltip.className = "org-tooltip";
-      card.appendChild(tooltip);
-      card.addEventListener("mouseenter", function () {
-        var s = computeOrgStats([node]);
-        var myDirectOpen = 0;
-        for (var di = 0; di < node.children.length; di++) {
-          if (isOpenRole(node.children[di].name)) myDirectOpen++;
-        }
-        tooltip.textContent =
-          s.total + " Total · " +
-          s.associates + " Associates · " +
-          s.managers + " Managers · " +
-          s.managersOfManagers + " Mgrs of Mgrs · " +
-          myDirectOpen + " Direct Open · " +
-          s.openRoles + " Org Open · " +
-          s.ratio + " Assoc/Mgr";
-        var cardRect = card.getBoundingClientRect();
-        var barBottom = statsBar.getBoundingClientRect().bottom;
-        tooltip.classList.toggle("tooltip-below", cardRect.top - barBottom < 40);
-        tooltip.classList.toggle("tooltip-right", cardRect.left < 100);
-        tooltip.classList.toggle("tooltip-left", window.innerWidth - cardRect.right < 100);
-      });
+      closePanel();
+      return;
     }
-
-    treeNode.appendChild(card);
-
-    // Children container
-    if (isManager) {
-      const childrenContainer = document.createElement("div");
-      childrenContainer.className = "children";
-
-      for (const child of node.children) {
-        childrenContainer.appendChild(renderNode(child, depth + 1, changes));
-      }
-
-      treeNode.appendChild(childrenContainer);
+    if (selectedPerson && panelHasUnsavedChanges()) {
+      if (!confirm("You have unsaved changes. Discard them?")) return;
     }
-
-    return treeNode;
+    openPanel(d.data.name);
   }
 
-  // ── Toggle / Expand / Collapse ──
+  // ── Toggle / Expand / Collapse (D3 style) ──
 
-  function updateCardState(card, expanded) {
-    if (!card) return;
-    card.setAttribute("aria-expanded", String(expanded));
-    var toggle = card.querySelector(".toggle");
-    if (toggle) toggle.textContent = expanded ? "−" : "+";
-  }
-
-  function clearIcHiddenSubtree(treeNodeEl) {
-    treeNodeEl.querySelectorAll(".tree-node.ic-hidden").forEach(function (tn) {
-      tn.classList.remove("ic-hidden");
-    });
-  }
-
-  function collapseSubtree(treeNodeEl) {
-    var childrenContainer = treeNodeEl.querySelector(":scope > .children");
-    if (!childrenContainer) return;
-    childrenContainer.classList.add("collapsed");
-    treeNodeEl.removeAttribute("data-expand-mode");
-    clearIcHiddenSubtree(treeNodeEl);
-    updateCardState(treeNodeEl.querySelector(":scope > .node-card"), false);
-  }
-
-  function flashNoManagers(card) {
-    var toggle = card.querySelector(".toggle");
-    if (!toggle) return;
-    toggle.classList.add("flash-no-managers");
-    setTimeout(function () {
-      toggle.classList.remove("flash-no-managers");
-    }, 600);
-  }
-
-  function expandManagersSubtree(treeNodeEl) {
-    var childrenContainer = treeNodeEl.querySelector(":scope > .children");
-    if (!childrenContainer) return;
-
-    var childNodes = childrenContainer.querySelectorAll(":scope > .tree-node");
-    childNodes.forEach(function (child) {
-      var childCard = child.querySelector(":scope > .node-card");
-      if (childCard && childCard.classList.contains("leaf")) {
-        child.classList.add("ic-hidden");
-      }
-    });
-
-    childrenContainer.classList.remove("collapsed");
-    treeNodeEl.setAttribute("data-expand-mode", "managers");
-    updateCardState(treeNodeEl.querySelector(":scope > .node-card"), true);
-
-    childNodes.forEach(function (child) {
-      var childCard = child.querySelector(":scope > .node-card");
-      if (childCard && childCard.classList.contains("manager")) {
-        var childChildren = child.querySelector(":scope > .children");
-        if (childChildren && childChildren.querySelector(":scope > .tree-node > .node-card.manager")) {
-          expandManagersSubtree(child);
+  function toggleNodeOneLevel(d) {
+    if (d.children) {
+      d._children = d._allChildren || d.children;
+      d.children = null;
+      d._allChildren = null;
+      d._expandMode = null;
+    } else if (d._children || d._allChildren) {
+      var all = d._allChildren || d._children;
+      d.children = all;
+      d._children = null;
+      d._allChildren = null;
+      d._expandMode = "all";
+      // Collapse grandchildren so only one level opens
+      for (var i = 0; i < d.children.length; i++) {
+        var child = d.children[i];
+        if (child.children && child.children.length > 0) {
+          child._children = child._allChildren || child.children;
+          child.children = null;
+          child._allChildren = null;
+          child._expandMode = null;
         }
       }
-    });
-  }
-
-  function toggleNodeAll(treeNodeEl) {
-    var childrenContainer = treeNodeEl.querySelector(":scope > .children");
-    if (!childrenContainer) return;
-
-    if (!childrenContainer.classList.contains("collapsed")) {
-      collapseSubtree(treeNodeEl);
-    } else {
-      clearIcHiddenSubtree(treeNodeEl);
-      childrenContainer.classList.remove("collapsed");
-      treeNodeEl.setAttribute("data-expand-mode", "all");
-      updateCardState(treeNodeEl.querySelector(":scope > .node-card"), true);
     }
   }
 
-  function toggleNodeManagers(treeNodeEl) {
-    var childrenContainer = treeNodeEl.querySelector(":scope > .children");
-    if (!childrenContainer) return;
+  function isManagerNode(d) {
+    return (d.children && d.children.length > 0) ||
+           (d._children && d._children.length > 0) ||
+           (d._allChildren && d._allChildren.length > 0);
+  }
 
-    if (!childrenContainer.classList.contains("collapsed")) {
-      collapseSubtree(treeNodeEl);
+  function toggleNodeAll(d) {
+    if (d.children) {
+      // Collapse
+      d._children = d._allChildren || d.children;
+      d.children = null;
+      d._allChildren = null;
+      d._expandMode = null;
+    } else if (d._children || d._allChildren) {
+      // Expand all
+      d.children = d._allChildren || d._children;
+      d._children = null;
+      d._allChildren = null;
+      d._expandMode = "all";
+    }
+  }
+
+  function toggleNodeManagers(d) {
+    if (d.children) {
+      // Collapse
+      d._children = d._allChildren || d.children;
+      d.children = null;
+      d._allChildren = null;
+      d._expandMode = null;
       return;
     }
 
-    var hasManagerChild = childrenContainer.querySelector(
-      ":scope > .tree-node > .node-card.manager"
-    );
-    if (!hasManagerChild) {
-      flashNoManagers(treeNodeEl.querySelector(":scope > .node-card"));
-      return;
-    }
+    var all = d._allChildren || d._children;
+    if (!all) return;
 
-    expandManagersSubtree(treeNodeEl);
+    var managerChildren = all.filter(function (c) { return isManagerNode(c); });
+    if (managerChildren.length === 0) return;
+
+    d._allChildren = all;
+    d.children = managerChildren;
+    d._children = null;
+    d._expandMode = "managers";
+
+    // Recursively expand managers in children
+    for (var i = 0; i < d.children.length; i++) {
+      var child = d.children[i];
+      if (child._children || child._allChildren) {
+        var childAll = child._allChildren || child._children;
+        var childMgrs = childAll.filter(function (c) { return isManagerNode(c); });
+        if (childMgrs.length > 0) {
+          child._allChildren = childAll;
+          child.children = childMgrs;
+          child._children = null;
+          child._expandMode = "managers";
+        }
+      }
+    }
   }
 
-  function clearIcHidden() {
-    chartEl.querySelectorAll(".tree-node.ic-hidden").forEach(function (tn) {
-      tn.classList.remove("ic-hidden");
-    });
+  function walkAll(d, fn) {
+    fn(d);
+    if (d.children) d.children.forEach(function (c) { walkAll(c, fn); });
+    if (d._children) d._children.forEach(function (c) { walkAll(c, fn); });
+    if (d._allChildren) d._allChildren.forEach(function (c) { walkAll(c, fn); });
   }
 
   function expandAll() {
-    clearIcHidden();
-    chartEl.querySelectorAll("[data-expand-mode]").forEach(function (tn) {
-      tn.removeAttribute("data-expand-mode");
+    if (!d3Root) return;
+    walkAll(d3Root, function (d) {
+      if (d._children || d._allChildren) {
+        d.children = d._allChildren || d._children;
+        d._children = null;
+        d._allChildren = null;
+        d._expandMode = "all";
+      }
     });
-    const containers = chartEl.querySelectorAll(".children.collapsed");
-    containers.forEach(function (c) {
-      c.classList.remove("collapsed");
-    });
-
-    const cards = chartEl.querySelectorAll('.node-card.manager');
-    cards.forEach(function (card) {
-      card.setAttribute("aria-expanded", "true");
-      const toggle = card.querySelector(".toggle");
-      if (toggle) toggle.textContent = "−";
-    });
+    updateChart(d3Root);
+    setTimeout(fitToView, 450);
   }
 
   function collapseAll() {
-    clearIcHidden();
-    chartEl.querySelectorAll("[data-expand-mode]").forEach(function (tn) {
-      tn.removeAttribute("data-expand-mode");
+    if (!d3Root) return;
+    walkAll(d3Root, function (d) {
+      if (d.depth > 0 && (d.children || d._allChildren)) {
+        d._children = d._allChildren || d.children;
+        d.children = null;
+        d._allChildren = null;
+        d._expandMode = null;
+      }
     });
-    const containers = chartEl.querySelectorAll(
-      ".tree-node > .children"
-    );
-    containers.forEach(function (c) {
-      c.classList.add("collapsed");
-    });
-
-    const cards = chartEl.querySelectorAll('.node-card.manager');
-    cards.forEach(function (card) {
-      card.setAttribute("aria-expanded", "false");
-      const toggle = card.querySelector(".toggle");
-      if (toggle) toggle.textContent = "+";
-    });
+    updateChart(d3Root);
+    setTimeout(fitToView, 450);
   }
 
   function expandManagers() {
-    collapseAll();
-    chartEl.querySelectorAll(".tree-node").forEach(function (tn) {
-      var card = tn.querySelector(":scope > .node-card");
-      if (card && card.classList.contains("leaf")) {
-        tn.classList.add("ic-hidden");
+    if (!d3Root) return;
+    // First collapse all
+    walkAll(d3Root, function (d) {
+      if (d.depth > 0 && (d.children || d._allChildren)) {
+        d._children = d._allChildren || d.children;
+        d.children = null;
+        d._allChildren = null;
       }
     });
-    var treeNodes = chartEl.querySelectorAll(".tree-node");
-    treeNodes.forEach(function (treeNode) {
-      var childrenContainer = treeNode.querySelector(":scope > .children");
-      if (!childrenContainer) return;
 
-      var hasManagerChild = childrenContainer.querySelector(
-        ":scope > .tree-node > .node-card.manager"
-      );
-      if (!hasManagerChild) return;
+    // Then expand only managers
+    function expandMgrs(d) {
+      var all = d._children;
+      if (!all) return;
 
-      childrenContainer.classList.remove("collapsed");
-      treeNode.setAttribute("data-expand-mode", "managers");
-      var card = treeNode.querySelector(":scope > .node-card");
-      if (card) {
-        card.setAttribute("aria-expanded", "true");
-        var toggle = card.querySelector(".toggle");
-        if (toggle) toggle.textContent = "−";
+      var managerChildren = all.filter(function (c) { return isManagerNode(c); });
+      if (managerChildren.length === 0) return;
+
+      d._allChildren = all;
+      d.children = managerChildren;
+      d._children = null;
+      d._expandMode = "managers";
+
+      for (var i = 0; i < d.children.length; i++) {
+        expandMgrs(d.children[i]);
+      }
+    }
+
+    // Expand root's children (or virtual root's children)
+    if (d3Root.children) {
+      d3Root.children.forEach(function (c) { expandMgrs(c); });
+    } else if (d3Root._children) {
+      d3Root.children = d3Root._children;
+      d3Root._children = null;
+      d3Root.children.forEach(function (c) { expandMgrs(c); });
+    }
+
+    updateChart(d3Root);
+    setTimeout(fitToView, 450);
+  }
+
+  function expandToDepth(maxDepth) {
+    if (!d3Root) return;
+    walkAll(d3Root, function (d) {
+      if (d.depth < maxDepth) {
+        if (d._children || d._allChildren) {
+          d.children = d._allChildren || d._children;
+          d._children = null;
+          d._allChildren = null;
+        }
+      } else {
+        if (d.children && d.children.length > 0) {
+          d._children = d._allChildren || d.children;
+          d.children = null;
+          d._allChildren = null;
+          d._expandMode = null;
+        }
       }
     });
   }
-
-  // ── Default expansion depth ──
 
   function getDefaultDepth() {
-    const w = window.innerWidth;
-    if (w > 1024) return 2;
-    if (w >= 768) return 1;
-    return 0;
+    var w = window.innerWidth;
+    if (w > 1024) return 3;
+    if (w >= 768) return 2;
+    return 1;
   }
 
-  function applyDefaultExpansion(depth) {
-    collapseAll();
-    if (depth > 0) {
-      const topWrapper = chartEl.querySelector(':scope > .children');
-      if (topWrapper) {
-        expandToDepth(topWrapper, 0, depth);
+  // ── Fit to View ──
+
+  function fitToView() {
+    if (!d3Root || !svg) return;
+    var nodes = d3Root.descendants().filter(function (d) {
+      return d.x !== undefined && d.data.name !== "__root__";
+    });
+    if (nodes.length === 0) return;
+
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(function (d) {
+      if (d.x < minX) minX = d.x;
+      if (d.x > maxX) maxX = d.x;
+      if (d.y < minY) minY = d.y;
+      if (d.y > maxY) maxY = d.y;
+    });
+
+    var svgEl = document.getElementById("tree-svg");
+    var width = svgEl.clientWidth;
+    var height = svgEl.clientHeight;
+    var pad = 120;
+
+    var treeW = (maxY - minY) + rectW + 160;
+    var treeH = (maxX - minX) + rectH + 80;
+    var vw = width - pad * 2;
+    var vh = height - pad * 2;
+    var scale = Math.min(vw / treeW, vh / treeH, 1.2);
+    var cx = (minY + maxY) / 2;
+    var cy = (minX + maxX) / 2;
+    var tx = width / 2 - cx * scale;
+    var ty = height / 2 - cy * scale;
+
+    svg.transition().duration(500)
+      .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }
+
+  // ── Rebuild and Render ──
+
+  function getCollapsedNames() {
+    if (!d3Root) return new Set();
+    var collapsed = new Set();
+    walkAll(d3Root, function (d) {
+      if (d._children && !d.children) {
+        collapsed.add(d.data.name);
       }
+    });
+    return collapsed;
+  }
+
+  function rebuildAndRender() {
+    var roots = buildTree(currentPeople);
+
+    if (emptyState) emptyState.style.display = "none";
+
+    // Wrap multiple roots under a virtual root
+    var treeData;
+    if (roots.length === 1) {
+      treeData = roots[0];
+    } else {
+      treeData = { name: "__root__", title: "", manager: "", children: roots };
+    }
+
+    // Pre-compute manager info on tree data
+    function annotate(node) {
+      node._isManager = node.children.length > 0;
+      node._mgrDepth = mgrDepth(node);
+      for (var i = 0; i < node.children.length; i++) {
+        annotate(node.children[i]);
+      }
+    }
+    annotate(treeData);
+
+    // Save expand state
+    var wasCollapsed = getCollapsedNames();
+
+    d3Root = d3.hierarchy(treeData);
+
+    // Assign stable IDs
+    nodeIdCounter = 0;
+    d3Root.descendants().forEach(function (d) {
+      d.id = ++nodeIdCounter;
+    });
+
+    d3Root.x0 = 0;
+    d3Root.y0 = 0;
+
+    // Apply collapse state
+    if (wasCollapsed.size > 0) {
+      d3Root.descendants().forEach(function (d) {
+        if (d.children && d.children.length > 0 && wasCollapsed.has(d.data.name)) {
+          d._children = d.children;
+          d.children = null;
+        }
+      });
+    } else {
+      // First load: apply default expansion
+      if (currentViewMode === "expand") {
+        // Leave everything expanded
+      } else if (currentViewMode === "managers") {
+        // Will be applied after updateChart
+      } else if (currentViewMode === "collapse") {
+        d3Root.descendants().forEach(function (d) {
+          if (d.depth > 0 && d.children && d.children.length > 0) {
+            d._children = d.children;
+            d.children = null;
+          }
+        });
+      } else {
+        expandToDepth(1);
+      }
+    }
+
+    updateChart(d3Root);
+    updateStatsBar(roots);
+    updateToolbarButtons();
+    updateLegend();
+
+    if (currentViewMode === "managers" && wasCollapsed.size === 0) {
+      expandManagers();
+    } else {
+      setTimeout(fitToView, 100);
     }
   }
 
-  function expandToDepth(parentEl, currentDepth, maxDepth) {
-    if (currentDepth >= maxDepth) return;
+  // ── Search ──
 
-    const treeNodes = parentEl.querySelectorAll(":scope > .tree-node");
-    treeNodes.forEach(function (treeNode) {
-      const childrenContainer = treeNode.querySelector(":scope > .children");
-      if (childrenContainer) {
-        childrenContainer.classList.remove("collapsed");
+  searchInput.addEventListener("input", function () {
+    if (!d3Root) return;
+    var q = searchInput.value.toLowerCase().trim();
 
-        const card = treeNode.querySelector(":scope > .node-card");
-        if (card) {
-          card.setAttribute("aria-expanded", "true");
-          const toggle = card.querySelector(".toggle");
-          if (toggle) toggle.textContent = "−";
+    d3.selectAll(".node-group").classed("node-highlight", false);
+
+    if (!q) {
+      updateChart(d3Root);
+      setTimeout(fitToView, 450);
+      return;
+    }
+
+    // Auto-expand ancestors of matches
+    walkAll(d3Root, function (node) {
+      if (node.data && node.data.name && node.data.name.toLowerCase().includes(q)) {
+        var p = node.parent;
+        while (p) {
+          if (p._children) {
+            p.children = p._allChildren || p._children;
+            p._children = null;
+            p._allChildren = null;
+          }
+          p = p.parent;
         }
-
-        expandToDepth(childrenContainer, currentDepth + 1, maxDepth);
       }
     });
-  }
+
+    updateChart(d3Root);
+
+    setTimeout(function () {
+      d3.selectAll(".node-group").classed("node-highlight", function (d) {
+        return d.data.name.toLowerCase().includes(q);
+      });
+      fitToView();
+    }, 450);
+  });
 
   // ── Error display ──
 
   function showError(message) {
-    chartEl.innerHTML = "";
-    const p = document.createElement("p");
-    p.className = "error-state";
-    p.textContent = message;
-    chartEl.appendChild(p);
+    if (emptyState) {
+      emptyState.style.display = "block";
+      emptyState.textContent = message;
+      emptyState.className = "error-state";
+    }
+    statsBar.hidden = true;
+    if (g) g.selectAll("*").remove();
   }
 
   // ── Load CSV text ──
@@ -767,24 +1223,44 @@
         return { name: p.name, title: p.title, manager: p.manager };
       });
       selectedPerson = null;
+      currentViewMode = "default";
       rebuildAndRender();
     }
   }
 
-  function rebuildAndRender() {
-    var roots = buildTree(currentPeople);
-    renderTree(roots);
-    updateStatsBar(roots);
-    if (currentViewMode === "expand") {
-      expandAll();
-    } else if (currentViewMode === "managers") {
-      expandManagers();
-    } else if (currentViewMode === "collapse") {
-      collapseAll();
-    } else {
-      applyDefaultExpansion(getDefaultDepth());
+  function loadPlanCSVText(text) {
+    if (!text || text.trim() === "") {
+      showError("Please upload a CSV file");
+      return;
     }
-    highlightSelectedCard();
+
+    var result = parseCSV(text);
+
+    if (result.error === "empty") {
+      showError("Please upload a CSV file");
+    } else if (result.error === "columns") {
+      showError("CSV must contain columns: Name, Title, Manager");
+    } else if (result.error === "no_data") {
+      showError("No valid data found in CSV");
+    } else {
+      var planPeople = addMissingManagers(result.people);
+      var planNames = new Set(planPeople.map(function (p) { return p.name; }));
+
+      // People in original but not in plan are "removed"
+      var removed = originalPeople.filter(function (p) {
+        return !planNames.has(p.name);
+      }).map(function (p) {
+        return { name: p.name, title: p.title, manager: p.manager, _removed: true };
+      });
+
+      currentPeople = planPeople.map(function (p) {
+        return { name: p.name, title: p.title, manager: p.manager };
+      }).concat(removed);
+
+      selectedPerson = null;
+      currentViewMode = "default";
+      rebuildAndRender();
+    }
   }
 
   function addMissingManagers(people) {
@@ -835,13 +1311,45 @@
     reader.readAsText(file);
   });
 
-  // Auto-load from ?file= URL parameter
+  planBtn.addEventListener("click", function () {
+    planFileInput.click();
+  });
+
+  planFileInput.addEventListener("change", function () {
+    var file = planFileInput.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      showError("Please upload a CSV file");
+      planFileInput.value = "";
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      loadPlanCSVText(e.target.result);
+      planFileInput.value = "";
+    };
+
+    reader.readAsText(file);
+  });
+
+  // Auto-load from ?file= and ?plan= URL parameters
   var params = new URLSearchParams(window.location.search);
   var autoFile = params.get("file");
+  var autoPlan = params.get("plan");
   if (autoFile) {
     fetch(autoFile)
       .then(function (r) { return r.text(); })
-      .then(loadCSVText)
+      .then(function (text) {
+        loadCSVText(text);
+        if (autoPlan) {
+          return fetch(autoPlan)
+            .then(function (r) { return r.text(); })
+            .then(loadPlanCSVText)
+            .catch(function () { showError("Could not load plan: " + autoPlan); });
+        }
+      })
       .catch(function () { showError("Could not load " + autoFile); });
   }
 
@@ -857,11 +1365,17 @@
   });
 
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && selectedPerson) {
-      if (panelHasUnsavedChanges()) {
-        if (!confirm("You have unsaved changes. Discard them?")) return;
+    if (e.key === "Escape") {
+      if (!ldapModal.hidden) {
+        closeLdapModal();
+        return;
       }
-      closePanel();
+      if (selectedPerson) {
+        if (panelHasUnsavedChanges()) {
+          if (!confirm("You have unsaved changes. Discard them?")) return;
+        }
+        closePanel();
+      }
     }
   });
 
@@ -880,15 +1394,17 @@
 
     currentPeople = currentPeople.map(function (p) {
       if (p.name === selectedPerson) {
-        return { name: p.name, title: newTitle, manager: newManager };
+        var updated = { name: p.name, title: newTitle, manager: newManager };
+        if (p._removed) updated._removed = true;
+        return updated;
       }
-      return { name: p.name, title: p.title, manager: p.manager };
+      var copy = { name: p.name, title: p.title, manager: p.manager };
+      if (p._removed) copy._removed = true;
+      return copy;
     });
 
     var savedName = selectedPerson;
     rebuildAndRender();
-    updateToolbarButtons();
-    updateLegend();
     openPanel(savedName);
   });
 
@@ -897,6 +1413,7 @@
 
     for (var i = 0; i < currentPeople.length; i++) {
       var p = currentPeople[i];
+      if (p._removed) continue;
       lines.push(csvEscape(p.name) + "," + csvEscape(p.title) + "," + csvEscape(p.manager));
     }
 
@@ -920,9 +1437,84 @@
     });
     selectedPerson = null;
     closePanel();
+    currentViewMode = "default";
     rebuildAndRender();
-    updateToolbarButtons();
-    updateLegend();
   });
+
+  // ── LDAP Import ──
+
+  function openLdapModal() {
+    ldapUidInput.value = "";
+    ldapDepthInput.value = "";
+    ldapStatus.hidden = true;
+    ldapStatus.className = "ldap-status";
+    ldapImportBtn.disabled = false;
+    ldapModal.hidden = false;
+    ldapUidInput.focus();
+  }
+
+  function closeLdapModal() {
+    ldapModal.hidden = true;
+  }
+
+  function setLdapStatus(msg, type) {
+    ldapStatus.textContent = msg;
+    ldapStatus.className = "ldap-status " + type;
+    ldapStatus.hidden = false;
+  }
+
+  function doLdapImport() {
+    var uid = ldapUidInput.value.trim();
+    if (!uid) {
+      setLdapStatus("Please enter a UID or name.", "error");
+      return;
+    }
+
+    var depth = ldapDepthInput.value ? parseInt(ldapDepthInput.value, 10) : 999;
+    ldapImportBtn.disabled = true;
+    setLdapStatus("Fetching org chart from LDAP... This may take a few minutes for large orgs.", "loading");
+
+    fetch("/api/ldap-org", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: uid, depth: depth })
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().then(function (err) { throw new Error(err.error || "Request failed"); });
+        }
+        return res.text();
+      })
+      .then(function (csvText) {
+        closeLdapModal();
+        loadCSVText(csvText);
+      })
+      .catch(function (err) {
+        setLdapStatus(err.message, "error");
+        ldapImportBtn.disabled = false;
+      });
+  }
+
+  ldapBtn.addEventListener("click", function () {
+    if (hasChanges()) {
+      if (!confirm("You have unsaved changes. Import new data?")) return;
+    }
+    openLdapModal();
+  });
+
+  ldapImportBtn.addEventListener("click", doLdapImport);
+  ldapCancelBtn.addEventListener("click", closeLdapModal);
+  ldapModalClose.addEventListener("click", closeLdapModal);
+
+  ldapModal.addEventListener("click", function (e) {
+    if (e.target === ldapModal) closeLdapModal();
+  });
+
+  ldapUidInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") doLdapImport();
+  });
+
+  // ── Initialize ──
+  initD3();
 
 })();
