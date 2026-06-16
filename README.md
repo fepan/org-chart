@@ -7,14 +7,10 @@ A lightweight, interactive org chart viewer that renders a CSV file as a visual 
 Open `index.html` directly in your browser, or serve it locally:
 
 ```bash
-# Python
-python3 -m http.server 8080
-
-# Node
-npx serve .
+python3 serve.py
 ```
 
-Then open http://localhost:8080.
+Then open http://localhost:8080. This also enables the LDAP import feature.
 
 ## Usage
 
@@ -45,6 +41,20 @@ http://localhost:8080?file=data/my-org.csv
 ```
 
 Personal CSV files go in the `data/` directory, which is gitignored.
+
+### Import from Google Sheets
+
+Use `load-sheet.sh` to download a Google Spreadsheet as CSV:
+
+```bash
+./load-sheet.sh                          # use defaults from .env
+./load-sheet.sh --sheet "Rom v2"         # different sheet/tab
+./load-sheet.sh --filter "My Team"       # override filter value
+./load-sheet.sh --no-filter              # download all rows
+./load-sheet.sh --out my-org             # custom output filename
+```
+
+Configure the spreadsheet ID, column mappings, and filter in `.env` (see `.env.example`).
 
 ### Claude Code Skill: `/load-sheet`
 
