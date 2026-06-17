@@ -48,6 +48,136 @@
   let selectedPerson = null;
   var currentViewMode = "default";
 
+  // Version management
+  var versions = [];
+  var activeVersionIndex = -1;
+  var versionToggle = document.getElementById("version-toggle");
+  var versionMenu = document.getElementById("version-menu");
+  var versionGroup = document.getElementById("version-group");
+
+  function formatTimestamp(date) {
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var m = months[date.getMonth()];
+    var d = date.getDate();
+    var h = date.getHours();
+    var min = String(date.getMinutes()).padStart(2, "0");
+    return m + " " + d + ", " + h + ":" + min;
+  }
+
+  function deriveVersionName(source) {
+    var name = source.replace(/^.*[\\/]/, "").replace(/\.csv$/i, "");
+    name = name.replace(/^data[\\/]/, "");
+    return name || "untitled";
+  }
+
+  function updateVersionDropdown() {
+    versionMenu.innerHTML = "";
+    if (versions.length === 0) {
+      versionGroup.hidden = true;
+      return;
+    }
+    versionGroup.hidden = false;
+    var active = versions[activeVersionIndex];
+    versionToggle.textContent = active.name + " (" + formatTimestamp(active.loadedAt) + ")";
+
+    for (var i = 0; i < versions.length; i++) {
+      var item = document.createElement("div");
+      item.className = "version-item" + (i === activeVersionIndex ? " active" : "");
+      item.dataset.index = i;
+
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "version-item-name";
+      nameSpan.textContent = versions[i].name;
+
+      var timeSpan = document.createElement("span");
+      timeSpan.className = "version-item-time";
+      timeSpan.textContent = formatTimestamp(versions[i].loadedAt);
+
+      var removeBtn = document.createElement("button");
+      removeBtn.className = "version-item-remove";
+      removeBtn.textContent = "×";
+      removeBtn.title = "Remove";
+      removeBtn.dataset.index = i;
+
+      item.appendChild(nameSpan);
+      item.appendChild(timeSpan);
+      item.appendChild(removeBtn);
+      versionMenu.appendChild(item);
+    }
+  }
+
+  function closeVersionMenu() {
+    versionMenu.hidden = true;
+  }
+
+  function addVersion(name, people) {
+    var existing = -1;
+    for (var i = 0; i < versions.length; i++) {
+      if (versions[i].name === name) { existing = i; break; }
+    }
+
+    var orig = people.map(function (p) { return { name: p.name, title: p.title, manager: p.manager }; });
+    var curr = people.map(function (p) { return { name: p.name, title: p.title, manager: p.manager }; });
+
+    if (existing >= 0) {
+      versions[existing].originalPeople = orig;
+      versions[existing].currentPeople = curr;
+      versions[existing].loadedAt = new Date();
+      activeVersionIndex = existing;
+    } else {
+      versions.push({ name: name, originalPeople: orig, currentPeople: curr, loadedAt: new Date() });
+      activeVersionIndex = versions.length - 1;
+    }
+
+    originalPeople = versions[activeVersionIndex].originalPeople;
+    currentPeople = versions[activeVersionIndex].currentPeople;
+    selectedPerson = null;
+    currentViewMode = "default";
+    updateVersionDropdown();
+    rebuildAndRender();
+  }
+
+  function switchVersion(index) {
+    if (index < 0 || index >= versions.length || index === activeVersionIndex) return;
+    if (activeVersionIndex >= 0 && activeVersionIndex < versions.length) {
+      versions[activeVersionIndex].currentPeople = currentPeople;
+    }
+    activeVersionIndex = index;
+    originalPeople = versions[index].originalPeople;
+    currentPeople = versions[index].currentPeople;
+    selectedPerson = null;
+    currentViewMode = "default";
+    updateVersionDropdown();
+    rebuildAndRender();
+  }
+
+  function removeVersion(index) {
+    if (index < 0 || index >= versions.length) return;
+    versions.splice(index, 1);
+    if (versions.length === 0) {
+      activeVersionIndex = -1;
+      originalPeople = [];
+      currentPeople = [];
+      selectedPerson = null;
+      updateVersionDropdown();
+      if (g) g.selectAll("*").remove();
+      statsBar.hidden = true;
+      emptyState.style.display = "";
+      emptyState.className = "empty-state";
+      emptyState.textContent = "Upload a CSV to get started";
+      return;
+    }
+    if (index <= activeVersionIndex) {
+      activeVersionIndex = Math.max(0, activeVersionIndex - 1);
+    }
+    originalPeople = versions[activeVersionIndex].originalPeople;
+    currentPeople = versions[activeVersionIndex].currentPeople;
+    selectedPerson = null;
+    currentViewMode = "default";
+    updateVersionDropdown();
+    rebuildAndRender();
+  }
+
   // D3 state
   var svg, g, zoomBehavior;
   var d3Root = null;
@@ -1200,7 +1330,7 @@
 
   // ── Load CSV text ──
 
-  function loadCSVText(text) {
+  function loadCSVText(text, versionName) {
     if (!text || text.trim() === "") {
       showError("Please upload a CSV file");
       return;
@@ -1216,15 +1346,8 @@
       showError("No valid data found in CSV");
     } else {
       var fullPeople = addMissingManagers(result.people);
-      originalPeople = fullPeople.map(function (p) {
-        return { name: p.name, title: p.title, manager: p.manager };
-      });
-      currentPeople = fullPeople.map(function (p) {
-        return { name: p.name, title: p.title, manager: p.manager };
-      });
-      selectedPerson = null;
-      currentViewMode = "default";
-      rebuildAndRender();
+      var name = versionName || "upload-" + (versions.length + 1);
+      addVersion(name, fullPeople);
     }
   }
 
@@ -1286,9 +1409,6 @@
   // ── Event listeners ──
 
   uploadBtn.addEventListener("click", function () {
-    if (hasChanges()) {
-      if (!confirm("You have unsaved changes. Load a new file?")) return;
-    }
     fileInput.click();
   });
 
@@ -1304,7 +1424,7 @@
 
     const reader = new FileReader();
     reader.onload = function (e) {
-      loadCSVText(e.target.result);
+      loadCSVText(e.target.result, deriveVersionName(file.name));
       fileInput.value = "";
     };
 
@@ -1342,7 +1462,7 @@
     fetch(autoFile)
       .then(function (r) { return r.text(); })
       .then(function (text) {
-        loadCSVText(text);
+        loadCSVText(text, deriveVersionName(autoFile));
         if (autoPlan) {
           return fetch(autoPlan)
             .then(function (r) { return r.text(); })
@@ -1487,7 +1607,7 @@
       })
       .then(function (csvText) {
         closeLdapModal();
-        loadCSVText(csvText);
+        loadCSVText(csvText, "ldap-" + uid);
       })
       .catch(function (err) {
         setLdapStatus(err.message, "error");
@@ -1496,9 +1616,6 @@
   }
 
   ldapBtn.addEventListener("click", function () {
-    if (hasChanges()) {
-      if (!confirm("You have unsaved changes. Import new data?")) return;
-    }
     openLdapModal();
   });
 
@@ -1512,6 +1629,31 @@
 
   ldapUidInput.addEventListener("keydown", function (e) {
     if (e.key === "Enter") doLdapImport();
+  });
+
+  // ── Version switcher ──
+  versionToggle.addEventListener("click", function () {
+    versionMenu.hidden = !versionMenu.hidden;
+  });
+
+  versionMenu.addEventListener("click", function (e) {
+    var removeBtn = e.target.closest(".version-item-remove");
+    if (removeBtn) {
+      e.stopPropagation();
+      removeVersion(parseInt(removeBtn.dataset.index, 10));
+      return;
+    }
+    var item = e.target.closest(".version-item");
+    if (item) {
+      switchVersion(parseInt(item.dataset.index, 10));
+      closeVersionMenu();
+    }
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".version-dropdown")) {
+      closeVersionMenu();
+    }
   });
 
   // ── Initialize ──
