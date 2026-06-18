@@ -295,6 +295,28 @@
     return names;
   }
 
+  function getAncestorChain(name) {
+    var chain = [name];
+    var current = name;
+    while (true) {
+      var person = currentPeople.find(function (p) { return p.name === current; });
+      if (!person || !person.manager) break;
+      chain.push(person.manager);
+      current = person.manager;
+    }
+    return chain;
+  }
+
+  function getOrgDistance(nameA, nameB) {
+    var chainA = getAncestorChain(nameA);
+    var chainB = getAncestorChain(nameB);
+    for (var i = 0; i < chainA.length; i++) {
+      var j = chainB.indexOf(chainA[i]);
+      if (j !== -1) return i + j;
+    }
+    return chainA.length + chainB.length;
+  }
+
   // ── Panel Logic ──
 
   function openPanel(name) {
@@ -316,14 +338,19 @@
     noMgrOption.textContent = "(No Manager)";
     panelManager.appendChild(noMgrOption);
 
-    var sortedPeople = currentPeople
+    var managers = currentPeople
       .filter(function (p) { return excluded.indexOf(p.name) === -1; })
-      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+      .filter(function (p) { return currentPeople.some(function (r) { return r.manager === p.name; }); })
+      .sort(function (a, b) {
+        var da = getOrgDistance(name, a.name);
+        var db = getOrgDistance(name, b.name);
+        return da !== db ? da - db : a.name.localeCompare(b.name);
+      });
 
-    for (var i = 0; i < sortedPeople.length; i++) {
+    for (var i = 0; i < managers.length; i++) {
       var opt = document.createElement("option");
-      opt.value = sortedPeople[i].name;
-      opt.textContent = sortedPeople[i].name;
+      opt.value = managers[i].name;
+      opt.textContent = managers[i].name + " — " + managers[i].title;
       panelManager.appendChild(opt);
     }
 
