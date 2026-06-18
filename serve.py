@@ -61,7 +61,7 @@ class OrgChartHandler(http.server.SimpleHTTPRequestHandler):
             self._json_error(400, "uid is required")
             return
 
-        if not SAFE_UID.match(uid):
+        if not SAFE_UID.match(uid) or uid in (".", ".."):
             self._json_error(400, "uid contains invalid characters (letters, digits, . _ - only)")
             return
 
