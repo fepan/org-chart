@@ -49,6 +49,7 @@
   var currentViewMode = "default";
 
   // Version management
+  var STORAGE_KEY = "orgchart-versions";
   var versions = [];
   var activeVersionIndex = -1;
   var versionToggle = document.getElementById("version-toggle");
@@ -110,6 +111,48 @@
     versionMenu.hidden = true;
   }
 
+  function saveVersionsToStorage() {
+    if (activeVersionIndex >= 0 && activeVersionIndex < versions.length) {
+      versions[activeVersionIndex].currentPeople = currentPeople;
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        versions: versions,
+        activeVersionIndex: activeVersionIndex
+      }));
+    } catch (e) {
+      console.warn("Could not save to localStorage:", e);
+    }
+  }
+
+  function loadVersionsFromStorage() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      var data = JSON.parse(raw);
+      if (!data || !Array.isArray(data.versions) || data.versions.length === 0) return false;
+
+      for (var i = 0; i < data.versions.length; i++) {
+        data.versions[i].loadedAt = new Date(data.versions[i].loadedAt);
+      }
+
+      versions = data.versions;
+      activeVersionIndex = data.activeVersionIndex;
+      if (activeVersionIndex < 0 || activeVersionIndex >= versions.length) {
+        activeVersionIndex = 0;
+      }
+
+      originalPeople = versions[activeVersionIndex].originalPeople;
+      currentPeople = versions[activeVersionIndex].currentPeople;
+      selectedPerson = null;
+      currentViewMode = "default";
+      return true;
+    } catch (e) {
+      console.warn("Could not load from localStorage:", e);
+      return false;
+    }
+  }
+
   function addVersion(name, people) {
     var existing = -1;
     for (var i = 0; i < versions.length; i++) {
@@ -135,6 +178,7 @@
     currentViewMode = "default";
     updateVersionDropdown();
     rebuildAndRender();
+    saveVersionsToStorage();
   }
 
   function switchVersion(index) {
@@ -149,6 +193,7 @@
     currentViewMode = "default";
     updateVersionDropdown();
     rebuildAndRender();
+    saveVersionsToStorage();
   }
 
   function removeVersion(index) {
@@ -165,6 +210,7 @@
       emptyState.style.display = "";
       emptyState.className = "empty-state";
       emptyState.textContent = "Upload a CSV to get started";
+      saveVersionsToStorage();
       return;
     }
     if (index <= activeVersionIndex) {
@@ -176,6 +222,7 @@
     currentViewMode = "default";
     updateVersionDropdown();
     rebuildAndRender();
+    saveVersionsToStorage();
   }
 
   // D3 state
@@ -1383,6 +1430,7 @@
       selectedPerson = null;
       currentViewMode = "default";
       rebuildAndRender();
+      saveVersionsToStorage();
     }
   }
 
@@ -1454,24 +1502,9 @@
     reader.readAsText(file);
   });
 
-  // Auto-load from ?file= and ?plan= URL parameters
   var params = new URLSearchParams(window.location.search);
   var autoFile = params.get("file");
   var autoPlan = params.get("plan");
-  if (autoFile) {
-    fetch(autoFile)
-      .then(function (r) { return r.text(); })
-      .then(function (text) {
-        loadCSVText(text, deriveVersionName(autoFile));
-        if (autoPlan) {
-          return fetch(autoPlan)
-            .then(function (r) { return r.text(); })
-            .then(loadPlanCSVText)
-            .catch(function () { showError("Could not load plan: " + autoPlan); });
-        }
-      })
-      .catch(function () { showError("Could not load " + autoFile); });
-  }
 
   expandBtn.addEventListener("click", function () { currentViewMode = "expand"; expandAll(); });
   mgmtBtn.addEventListener("click", function () { currentViewMode = "managers"; expandManagers(); });
@@ -1526,6 +1559,7 @@
     var savedName = selectedPerson;
     rebuildAndRender();
     openPanel(savedName);
+    saveVersionsToStorage();
   });
 
   saveCsvBtn.addEventListener("click", function () {
@@ -1559,6 +1593,7 @@
     closePanel();
     currentViewMode = "default";
     rebuildAndRender();
+    saveVersionsToStorage();
   });
 
   // ── LDAP Import ──
@@ -1658,5 +1693,25 @@
 
   // ── Initialize ──
   initD3();
+
+  loadVersionsFromStorage();
+
+  if (autoFile) {
+    fetch(autoFile)
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        loadCSVText(text, deriveVersionName(autoFile));
+        if (autoPlan) {
+          return fetch(autoPlan)
+            .then(function (r) { return r.text(); })
+            .then(loadPlanCSVText)
+            .catch(function () { showError("Could not load plan: " + autoPlan); });
+        }
+      })
+      .catch(function () { showError("Could not load " + autoFile); });
+  } else if (versions.length > 0) {
+    updateVersionDropdown();
+    rebuildAndRender();
+  }
 
 })();
