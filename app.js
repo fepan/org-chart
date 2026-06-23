@@ -29,6 +29,9 @@
   var statAvgSpan = document.getElementById("stat-avg-span");
   var statLevels = document.getElementById("stat-levels");
   var statOpenRoles = document.getElementById("stat-open-roles");
+  var filterBar = document.getElementById("filter-bar");
+  var includePartnersCheck = document.getElementById("include-partners");
+  var includeInternsCheck = document.getElementById("include-interns");
   var tooltipEl = document.getElementById("tooltip");
   var emptyState = chartEl.querySelector(".empty-state");
 
@@ -47,6 +50,8 @@
   let currentPeople = [];
   let selectedPerson = null;
   var currentViewMode = "default";
+  var includeCollaborativePartners = false;
+  var includeInterns = false;
 
   // Version management
   var STORAGE_KEY = "orgchart-versions";
@@ -176,6 +181,7 @@
     currentPeople = versions[activeVersionIndex].currentPeople;
     selectedPerson = null;
     currentViewMode = "default";
+    resetRoleFilters();
     updateVersionDropdown();
     rebuildAndRender();
     saveVersionsToStorage();
@@ -191,6 +197,7 @@
     currentPeople = versions[index].currentPeople;
     selectedPerson = null;
     currentViewMode = "default";
+    resetRoleFilters();
     updateVersionDropdown();
     rebuildAndRender();
     saveVersionsToStorage();
@@ -207,6 +214,7 @@
       updateVersionDropdown();
       if (g) g.selectAll("*").remove();
       statsBar.hidden = true;
+      filterBar.hidden = true;
       emptyState.style.display = "";
       emptyState.className = "empty-state";
       emptyState.textContent = "Upload a CSV to get started";
@@ -220,6 +228,7 @@
     currentPeople = versions[activeVersionIndex].currentPeople;
     selectedPerson = null;
     currentViewMode = "default";
+    resetRoleFilters();
     updateVersionDropdown();
     rebuildAndRender();
     saveVersionsToStorage();
@@ -453,6 +462,48 @@
     }
     result.push(current);
     return result;
+  }
+
+  // ── Role Filters ──
+
+  function isCollaborativePartner(person) {
+    return /^collaborative\s+partner$/i.test((person.title || "").trim());
+  }
+
+  function isIntern(person) {
+    return /\bintern\b/i.test((person.title || "").trim());
+  }
+
+  function isExcludedByCategory(person) {
+    if (!includeCollaborativePartners && isCollaborativePartner(person)) return true;
+    if (!includeInterns && isIntern(person)) return true;
+    return false;
+  }
+
+  function getVisiblePeople(people) {
+    return people.filter(function (p) {
+      return !p._removed && !isExcludedByCategory(p);
+    });
+  }
+
+  function resetRoleFilters() {
+    includeCollaborativePartners = false;
+    includeInterns = false;
+    includePartnersCheck.checked = false;
+    includeInternsCheck.checked = false;
+  }
+
+  function updateFilterBar() {
+    if (currentPeople.length === 0) {
+      filterBar.hidden = true;
+      return;
+    }
+
+    var hasPartners = currentPeople.some(isCollaborativePartner);
+    var hasInterns = currentPeople.some(isIntern);
+    includePartnersCheck.closest("label").hidden = !hasPartners;
+    includeInternsCheck.closest("label").hidden = !hasInterns;
+    filterBar.hidden = !hasPartners && !hasInterns;
   }
 
   // ── Tree Building ──
@@ -1250,7 +1301,7 @@
   }
 
   function rebuildAndRender() {
-    var roots = buildTree(currentPeople);
+    var roots = buildTree(getVisiblePeople(currentPeople));
 
     if (emptyState) emptyState.style.display = "none";
 
@@ -1314,6 +1365,7 @@
 
     updateChart(d3Root);
     updateStatsBar(roots);
+    updateFilterBar();
     updateToolbarButtons();
     updateLegend();
 
@@ -1372,6 +1424,7 @@
       emptyState.className = "error-state";
     }
     statsBar.hidden = true;
+    filterBar.hidden = true;
     if (g) g.selectAll("*").remove();
   }
 
@@ -1664,6 +1717,16 @@
 
   ldapUidInput.addEventListener("keydown", function (e) {
     if (e.key === "Enter") doLdapImport();
+  });
+
+  includePartnersCheck.addEventListener("change", function () {
+    includeCollaborativePartners = includePartnersCheck.checked;
+    rebuildAndRender();
+  });
+
+  includeInternsCheck.addEventListener("change", function () {
+    includeInterns = includeInternsCheck.checked;
+    rebuildAndRender();
   });
 
   // ── Version switcher ──
