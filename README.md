@@ -75,7 +75,17 @@ Requires the [`gws` CLI](https://github.com/nicholasgasior/gws) to be installed 
 
 Click **Import LDAP** in the toolbar to fetch an org chart from a corporate LDAP directory. Enter a user's uid and optionally limit the depth.
 
-This requires `ldapsearch` (e.g. `openldap-clients`) and the dev server (`python3 serve.py`).
+This requires `ldapsearch` and the dev server (`python3 serve.py`).
+
+- **macOS:** OpenLDAP client tools (often preinstalled)
+- **Fedora/RHEL:** `sudo dnf install openldap-clients`
+
+Run portability tests (mock LDAP, no VPN needed):
+
+```bash
+./scripts/test-fetch-org.sh
+RUN_LIVE_LDAP=1 ./scripts/test-fetch-org.sh   # also hits real LDAP (.env + VPN)
+```
 
 Configure your LDAP connection by copying the example env file:
 
