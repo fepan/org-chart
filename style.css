@@ -260,6 +260,7 @@ header h1 {
   cursor: pointer;
 }
 
+.filter-bar[hidden],
 .filter-toggle[hidden] {
   display: none;
 }
