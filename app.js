@@ -7,6 +7,7 @@
   var expandBtn = document.getElementById("expand-btn");
   var mgmtBtn = document.getElementById("mgmt-btn");
   var collapseBtn = document.getElementById("collapse-btn");
+  var layoutBtn = document.getElementById("layout-btn");
   var searchInput = document.getElementById("search");
 
   var editPanel = document.getElementById("edit-panel");
@@ -47,6 +48,7 @@
   let currentPeople = [];
   let selectedPerson = null;
   var currentViewMode = "default";
+  var layoutOrientation = "horizontal";
 
   // Version management
   var STORAGE_KEY = "orgchart-versions";
@@ -618,6 +620,35 @@
       " " + t.y + "," + t.x;
   }
 
+  function diagonalVertical(s, t) {
+    return "M" + s.x + "," + s.y +
+      "C" + s.x + "," + ((s.y + t.y) / 2) +
+      " " + t.x + "," + ((s.y + t.y) / 2) +
+      " " + t.x + "," + t.y;
+  }
+
+  function isVerticalLayout() {
+    return layoutOrientation === "vertical";
+  }
+
+  function getTreeNodeSize() {
+    return isVerticalLayout() ? [rectW + 40, rectH + 70] : [48, 240];
+  }
+
+  function linkPath(s, t) {
+    return isVerticalLayout() ? diagonalVertical(s, t) : diagonal(s, t);
+  }
+
+  function nodeTransform(d) {
+    return isVerticalLayout()
+      ? "translate(" + d.x + "," + d.y + ")"
+      : "translate(" + d.y + "," + d.x + ")";
+  }
+
+  function updateLayoutButton() {
+    layoutBtn.textContent = isVerticalLayout() ? "Left-Right" : "Top Down";
+  }
+
   // ── D3 Initialization ──
 
   function initD3() {
@@ -636,7 +667,7 @@
     if (!d3Root) return;
 
     var changes = getChanges();
-    var treeLayout = d3.tree().nodeSize([48, 240]);
+    var treeLayout = d3.tree().nodeSize(getTreeNodeSize());
     treeLayout(d3Root);
 
     var nodes = d3Root.descendants();
@@ -661,16 +692,16 @@
       .attr("class", "link")
       .attr("d", function () {
         var o = { x: source.x0 || 0, y: source.y0 || 0 };
-        return diagonal(o, o);
+        return linkPath(o, o);
       });
 
     linkEnter.merge(link).transition(transition)
-      .attr("d", function (d) { return diagonal(d.source, d.target); });
+      .attr("d", function (d) { return linkPath(d.source, d.target); });
 
     link.exit().transition(transition)
       .attr("d", function () {
         var o = { x: source.x, y: source.y };
-        return diagonal(o, o);
+        return linkPath(o, o);
       }).remove();
 
     // ── Nodes ──
@@ -678,7 +709,9 @@
 
     var nodeEnter = node.enter().append("g")
       .attr("class", "node-group")
-      .attr("transform", "translate(" + (source.y0 || 0) + "," + (source.x0 || 0) + ")");
+      .attr("transform", function () {
+        return nodeTransform({ x: source.x0 || 0, y: source.y0 || 0 });
+      });
 
     // Card background rect
     nodeEnter.append("rect")
@@ -844,7 +877,7 @@
     var nodeUpdate = nodeEnter.merge(node);
 
     nodeUpdate.transition(transition)
-      .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; });
+      .attr("transform", nodeTransform);
 
     // Update rect colors based on depth and diff
     nodeUpdate.select(".node-rect")
@@ -986,7 +1019,7 @@
 
     // ── Exit selection ──
     node.exit().transition(transition)
-      .attr("transform", "translate(" + source.y + "," + source.x + ")")
+      .attr("transform", nodeTransform(source))
       .remove();
 
     // Store positions for next transition
@@ -1221,14 +1254,26 @@
     var width = svgEl.clientWidth;
     var height = svgEl.clientHeight;
     var pad = 120;
+    var treeW;
+    var treeH;
+    var cx;
+    var cy;
 
-    var treeW = (maxY - minY) + rectW + 160;
-    var treeH = (maxX - minX) + rectH + 80;
+    if (isVerticalLayout()) {
+      treeW = (maxX - minX) + rectW + 160;
+      treeH = (maxY - minY) + rectH + 80;
+      cx = (minX + maxX) / 2;
+      cy = (minY + maxY) / 2;
+    } else {
+      treeW = (maxY - minY) + rectW + 160;
+      treeH = (maxX - minX) + rectH + 80;
+      cx = (minY + maxY) / 2;
+      cy = (minX + maxX) / 2;
+    }
+
     var vw = width - pad * 2;
     var vh = height - pad * 2;
     var scale = Math.min(vw / treeW, vh / treeH, 1.2);
-    var cx = (minY + maxY) / 2;
-    var cy = (minX + maxX) / 2;
     var tx = width / 2 - cx * scale;
     var ty = height / 2 - cy * scale;
 
@@ -1509,6 +1554,17 @@
   expandBtn.addEventListener("click", function () { currentViewMode = "expand"; expandAll(); });
   mgmtBtn.addEventListener("click", function () { currentViewMode = "managers"; expandManagers(); });
   collapseBtn.addEventListener("click", function () { currentViewMode = "collapse"; collapseAll(); });
+
+  layoutBtn.addEventListener("click", function () {
+    layoutOrientation = isVerticalLayout() ? "horizontal" : "vertical";
+    updateLayoutButton();
+    if (d3Root) {
+      updateChart(d3Root);
+      setTimeout(fitToView, 450);
+    }
+  });
+
+  updateLayoutButton();
 
   panelCloseBtn.addEventListener("click", function () {
     if (panelHasUnsavedChanges()) {

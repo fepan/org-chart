@@ -31,6 +31,7 @@ Carol,Senior Engineer,Bob
 - **Expand All** — expand the entire tree
 - **Managers Only** — show only the management chain (hide ICs)
 - **Collapse All** — collapse everything
+- **Top Down / Left-Right** — switch between vertical and horizontal tree layout
 
 ### Auto-Load from URL
 
