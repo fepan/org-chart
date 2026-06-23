@@ -224,6 +224,46 @@ header h1 {
   color: var(--text);
 }
 
+.filter-bar {
+  position: fixed;
+  top: 88px;
+  left: 0;
+  right: 0;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 4px 24px;
+  height: 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.filter-label {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-toggle input {
+  accent-color: var(--l4);
+  cursor: pointer;
+}
+
+.filter-toggle[hidden] {
+  display: none;
+}
+
 /* ── Buttons ── */
 .btn {
   font-family: 'DM Sans', sans-serif;
