@@ -19,6 +19,11 @@
   var panelCancelBtn = document.getElementById("panel-cancel-btn");
   var saveCsvBtn = document.getElementById("save-csv-btn");
   var resetBtn = document.getElementById("reset-btn");
+  var exportGroup = document.getElementById("export-group");
+  var exportBtn = document.getElementById("export-btn");
+  var exportMenu = document.getElementById("export-menu");
+  var exportPngBtn = document.getElementById("export-png");
+  var exportPdfBtn = document.getElementById("export-pdf");
   var legendEl = document.getElementById("change-legend");
   var statsBar = document.getElementById("stats-bar");
   var statTotal = document.getElementById("stat-total");
@@ -451,6 +456,7 @@
     saveCsvBtn.hidden = !changed;
     resetBtn.hidden = !changed;
     planBtn.hidden = originalPeople.length === 0;
+    exportGroup.hidden = !d3Root;
   }
 
   function updateLegend(changed) {
@@ -1682,6 +1688,233 @@
   document.addEventListener("click", function (e) {
     if (!e.target.closest(".version-dropdown")) {
       closeVersionMenu();
+    }
+  });
+
+  // ── Export ──
+
+  var _dmSansFontCSS = null;
+
+  var EXPORT_SVG_PROPS = [
+    "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity",
+    "stroke-dasharray", "stroke-linecap", "stroke-linejoin",
+    "font-family", "font-size", "font-weight", "font-style",
+    "opacity", "display", "visibility",
+    "text-anchor", "dominant-baseline", "alignment-baseline", "rx", "ry"
+  ];
+
+  function inlineExportStyles(liveSvg, cloneSvg) {
+    function walk(live, clone) {
+      if (!live || !clone || live.nodeType !== 1) return;
+      var cs = window.getComputedStyle(live);
+      EXPORT_SVG_PROPS.forEach(function (p) {
+        var v = cs.getPropertyValue(p);
+        if (v !== "" && v !== "auto") clone.style.setProperty(p, v);
+      });
+      for (var i = 0; i < live.children.length; i++) {
+        if (clone.children[i]) walk(live.children[i], clone.children[i]);
+      }
+    }
+    walk(liveSvg, cloneSvg);
+  }
+
+  async function getDMSansFontCSS() {
+    if (_dmSansFontCSS !== null) return _dmSansFontCSS;
+    _dmSansFontCSS = "";
+    try {
+      var cssResp = await fetch(
+        "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap"
+      );
+      var css = await cssResp.text();
+      // Split on "/* latin */" comments to get only the latin subset blocks
+      var parts = css.split("/* latin */");
+      for (var i = 1; i < parts.length; i++) {
+        var block = parts[i];
+        var urlMatch = block.match(/url\(([^)]+)\)/);
+        var wMatch = block.match(/font-weight:\s*(\S+)/);
+        if (!urlMatch || !wMatch) continue;
+        var fResp = await fetch(urlMatch[1]);
+        var buf = await fResp.arrayBuffer();
+        var bytes = new Uint8Array(buf);
+        var bin = "";
+        for (var j = 0; j < bytes.length; j++) bin += String.fromCharCode(bytes[j]);
+        _dmSansFontCSS += "@font-face{font-family:'DM Sans';font-weight:" + wMatch[1] +
+                          ";src:url('data:font/woff2;base64," + btoa(bin) + "')format('woff2')}\n";
+      }
+    } catch (e) {
+      // Font embedding failed; exports will use system sans-serif fallback
+    }
+    return _dmSansFontCSS;
+  }
+
+  function buildExportSvg(fontCSS) {
+    if (!d3Root) return null;
+
+    var pad = 40;
+    var nodes = d3Root.descendants().filter(function (d) {
+      return d.data.name !== "__root__" && d.x !== undefined;
+    });
+    if (nodes.length === 0) return null;
+
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(function (d) {
+      if (d.x < minX) minX = d.x;
+      if (d.x > maxX) maxX = d.x;
+      if (d.y < minY) minY = d.y;
+      if (d.y > maxY) maxY = d.y;
+    });
+
+    // D3 horizontal tree: y = depth (horizontal), x = rank (vertical)
+    var vbX = minY - pad;
+    var vbY = minX - rectH / 2 - pad;
+    var vbW = (maxY - minY) + rectW + pad * 2;
+    var vbH = (maxX - minX) + rectH + pad * 2;
+
+    var liveSvg = document.getElementById("tree-svg");
+    var clone = liveSvg.cloneNode(true);
+
+    // Remove D3 zoom transform from the inner group so raw coordinates are used
+    var innerG = clone.querySelector("g");
+    if (innerG) innerG.removeAttribute("transform");
+
+    clone.setAttribute("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH);
+    clone.setAttribute("width", vbW);
+    clone.setAttribute("height", vbH);
+    clone.removeAttribute("style");
+
+    // Resolve CSS variables and classes by inlining computed styles
+    inlineExportStyles(liveSvg, clone);
+
+    // Background rect (SVG is transparent by default)
+    var ns = "http://www.w3.org/2000/svg";
+    var bgColor = window.getComputedStyle(document.documentElement)
+      .getPropertyValue("--bg").trim() || "#0f1117";
+    var bg = document.createElementNS(ns, "rect");
+    bg.setAttribute("x", vbX);
+    bg.setAttribute("y", vbY);
+    bg.setAttribute("width", vbW);
+    bg.setAttribute("height", vbH);
+    bg.setAttribute("fill", bgColor);
+    clone.insertBefore(bg, clone.firstChild);
+
+    // Inject font CSS into <defs>
+    var defs = clone.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS(ns, "defs");
+      clone.insertBefore(defs, clone.firstChild);
+    }
+    if (fontCSS) {
+      var styleEl = document.createElementNS(ns, "style");
+      styleEl.textContent = fontCSS;
+      defs.appendChild(styleEl);
+    }
+
+    return { el: clone, w: vbW, h: vbH };
+  }
+
+  async function exportPNG() {
+    if (!d3Root) return;
+    exportPngBtn.disabled = true;
+    exportPngBtn.textContent = "Preparing…";
+    exportMenu.hidden = true;
+
+    try {
+      var fontCSS = await getDMSansFontCSS();
+      var result = buildExportSvg(fontCSS);
+      if (!result) return;
+
+      var serializer = new XMLSerializer();
+      var svgStr = serializer.serializeToString(result.el);
+      var dataUri = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
+
+      var scale = 2;
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(result.w * scale);
+      canvas.height = Math.ceil(result.h * scale);
+      var ctx = canvas.getContext("2d");
+
+      await new Promise(function (resolve, reject) {
+        var img = new Image();
+        img.onload = function () {
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0, result.w, result.h);
+          resolve();
+        };
+        img.onerror = reject;
+        img.src = dataUri;
+      });
+
+      canvas.toBlob(function (blob) {
+        var today = new Date().toISOString().slice(0, 10);
+        var a = document.createElement("a");
+        var url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = "org-chart-" + today + ".png";
+        a.click();
+        URL.revokeObjectURL(url);
+      }, "image/png");
+
+    } catch (e) {
+      console.error("PNG export failed:", e);
+      alert("PNG export failed. Please try again.");
+    } finally {
+      exportPngBtn.disabled = false;
+      exportPngBtn.textContent = "Download PNG";
+    }
+  }
+
+  async function exportPDF() {
+    if (!d3Root) return;
+    if (!window.jspdf) {
+      alert("PDF library not loaded. Please refresh and try again.");
+      return;
+    }
+    exportPdfBtn.disabled = true;
+    exportPdfBtn.textContent = "Preparing…";
+    exportMenu.hidden = true;
+
+    var svgEl = null;
+    try {
+      var fontCSS = await getDMSansFontCSS();
+      var result = buildExportSvg(fontCSS);
+      if (!result) return;
+
+      svgEl = result.el;
+      svgEl.style.cssText = "position:absolute;top:-99999px;left:-99999px;";
+      document.body.appendChild(svgEl);
+
+      var doc = new window.jspdf.jsPDF({
+        orientation: result.w > result.h ? "l" : "p",
+        unit: "pt",
+        format: [result.w, result.h]
+      });
+
+      await doc.svg(svgEl, { x: 0, y: 0, width: result.w, height: result.h });
+
+      var today = new Date().toISOString().slice(0, 10);
+      doc.save("org-chart-" + today + ".pdf");
+
+    } catch (e) {
+      console.error("PDF export failed:", e);
+      alert("PDF export failed. Please try again.");
+    } finally {
+      if (svgEl && svgEl.parentNode) svgEl.parentNode.removeChild(svgEl);
+      exportPdfBtn.disabled = false;
+      exportPdfBtn.textContent = "Download PDF";
+    }
+  }
+
+  exportBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    exportMenu.hidden = !exportMenu.hidden;
+  });
+
+  exportPngBtn.addEventListener("click", exportPNG);
+  exportPdfBtn.addEventListener("click", exportPDF);
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".export-group")) {
+      exportMenu.hidden = true;
     }
   });
 

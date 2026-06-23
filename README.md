@@ -31,6 +31,7 @@ Carol,Senior Engineer,Bob
 - **Expand All** — expand the entire tree
 - **Managers Only** — show only the management chain (hide ICs)
 - **Collapse All** — collapse everything
+- **Export** — download the current chart as a PNG image or PDF document (appears after a chart is loaded)
 - **Show: Collaborative Partners / Interns** — optional checkboxes to include these roles (hidden by default)
 
 ### Auto-Load from URL
